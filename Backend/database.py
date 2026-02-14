@@ -30,6 +30,8 @@ def init_db() -> None:
                 password_hash TEXT NOT NULL,
                 name TEXT,
                 resume TEXT,
+                resume_pdf BLOB,
+                resume_text TEXT,
                 interests TEXT,
                 account_type TEXT DEFAULT 'user',
                 created_at TEXT DEFAULT (datetime('now'))
@@ -54,6 +56,15 @@ def init_db() -> None:
             CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
             CREATE INDEX IF NOT EXISTS idx_companies_email ON companies(email);
         """)
+        # Migration: add new columns to existing users table
+        try:
+            conn.execute("ALTER TABLE users ADD COLUMN resume_pdf BLOB")
+        except sqlite3.OperationalError:
+            pass  # column already exists
+        try:
+            conn.execute("ALTER TABLE users ADD COLUMN resume_text TEXT")
+        except sqlite3.OperationalError:
+            pass
 
 
 def hash_password(password: str) -> str:
@@ -65,30 +76,54 @@ def verify_password(plain: str, hashed: str) -> bool:
 
 
 # --- Users (applicants) ---
-def create_user(email: str, password: str, name: str = "", resume: str = "", interests: str = "[]") -> Dict[str, Any]:
+def create_user(
+    email: str,
+    password: str,
+    name: str = "",
+    resume: str = "",
+    resume_pdf: bytes | None = None,
+    resume_text: str = "",
+    interests: str = "[]",
+    user_id: str | None = None,
+) -> Dict[str, Any]:
     if get_user_by_email(email):
         return None  # caller should raise 409
-    user_id = str(uuid4())
+    user_id = user_id or str(uuid4())
     with get_conn() as conn:
         conn.execute(
-            "INSERT INTO users (id, email, password_hash, name, resume, interests) VALUES (?, ?, ?, ?, ?, ?)",
-            (user_id, email, hash_password(password), name, resume, interests),
+            """INSERT INTO users (id, email, password_hash, name, resume, resume_pdf, resume_text, interests)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (user_id, email, hash_password(password), name, resume, resume_pdf, resume_text, interests),
         )
-    return {"id": user_id, "email": email, "name": name, "resume": resume, "interests": interests, "account_type": "user"}
+    return {
+        "id": user_id,
+        "email": email,
+        "name": name,
+        "resume": resume,
+        "has_resume_pdf": bool(resume_pdf),
+        "resume_text": resume_text,
+        "interests": interests,
+        "account_type": "user",
+    }
 
 
 def get_user_by_email(email: str) -> Optional[Dict[str, Any]]:
     with get_conn() as conn:
-        row = conn.execute("SELECT id, email, password_hash, name, resume, interests FROM users WHERE email = ?", (email,)).fetchone()
+        row = conn.execute(
+            "SELECT id, email, password_hash, name, resume, resume_text, interests FROM users WHERE email = ?",
+            (email,),
+        ).fetchone()
     if not row:
         return None
+    row_dict = dict(row)
     return {
-        "id": row["id"],
-        "email": row["email"],
-        "password_hash": row["password_hash"],
-        "name": row["name"] or "",
-        "resume": row["resume"] or "",
-        "interests": row["interests"] or "[]",
+        "id": row_dict["id"],
+        "email": row_dict["email"],
+        "password_hash": row_dict["password_hash"],
+        "name": row_dict.get("name") or "",
+        "resume": row_dict.get("resume") or "",
+        "resume_text": row_dict.get("resume_text") or "",
+        "interests": row_dict.get("interests") or "[]",
         "account_type": "user",
     }
 
@@ -175,7 +210,10 @@ def get_session(token: str) -> Optional[Dict[str, Any]]:
 # --- In-memory data we still need (applications, jobs, etc.) - keep in models but allow future DB migration
 def get_user_by_id(user_id: str) -> Optional[Dict[str, Any]]:
     with get_conn() as conn:
-        row = conn.execute("SELECT id, email, name, resume, interests FROM users WHERE id = ?", (user_id,)).fetchone()
+        row = conn.execute(
+            "SELECT id, email, name, resume, resume_text, interests FROM users WHERE id = ?",
+            (user_id,),
+        ).fetchone()
     if not row:
         return None
     return dict(row)

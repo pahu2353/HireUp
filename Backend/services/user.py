@@ -1,6 +1,7 @@
 """User (applicant) business logic."""
 from __future__ import annotations
 
+import base64
 import json
 from typing import Dict, List
 from uuid import uuid4
@@ -9,8 +10,10 @@ from fastapi import HTTPException
 
 try:
     from . import database
+    from . import pdf_utils
 except ImportError:
     import database
+    import pdf_utils
 
 
 # In-memory state (applications, interviews); matched jobs are mock data for now.
@@ -27,11 +30,35 @@ def create_user(user_data: Dict) -> Dict:
     password = user_data.get("password", "")
     name = user_data.get("name", "")
     resume = user_data.get("resume", "")
+    resume_pdf_base64 = user_data.get("resume_pdf_base64")
     interests = user_data.get("interests", [])
     interests_str = json.dumps(interests) if isinstance(interests, list) else str(interests)
     if not email or not password:
         raise HTTPException(status_code=400, detail="Email and password required")
-    user = database.create_user(email=email, password=password, name=name, resume=resume, interests=interests_str)
+
+    resume_pdf = None
+    resume_text = ""
+    if resume_pdf_base64:
+        try:
+            pdf_bytes = base64.b64decode(resume_pdf_base64)
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid resume PDF (base64 decode failed)")
+        if not pdf_bytes:
+            raise HTTPException(status_code=400, detail="Empty resume PDF")
+        resume_pdf = pdf_bytes
+        resume_text = pdf_utils.extract_pdf_text(pdf_bytes)
+    elif resume:
+        resume_text = resume
+
+    user = database.create_user(
+        email=email,
+        password=password,
+        name=name,
+        resume=resume,
+        resume_pdf=resume_pdf,
+        resume_text=resume_text,
+        interests=interests_str,
+    )
     if user is None:
         raise HTTPException(status_code=409, detail="An account with this email already exists")
     return user

@@ -49,6 +49,7 @@ export async function signupUser(payload: {
   password: string
   name?: string
   resume?: string
+  resumePdfBase64?: string
   interests?: string[]
 }) {
   const res = await fetch(getApiUrl("/signup"), {
@@ -60,6 +61,7 @@ export async function signupUser(payload: {
       password: payload.password,
       name: payload.name ?? "",
       resume: payload.resume ?? "",
+      resume_pdf_base64: payload.resumePdfBase64 ?? undefined,
       interests: payload.interests ?? [],
     }),
   })

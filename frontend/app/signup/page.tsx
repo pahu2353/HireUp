@@ -10,7 +10,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { ThemeToggle } from "@/components/theme-toggle"
-import { X } from "lucide-react"
+import { X, FileText } from "lucide-react"
 import { signupUser, signupCompany } from "@/lib/api"
 
 const SUGGESTED_SKILLS = [
@@ -37,6 +37,7 @@ export default function SignupPage() {
   const [aEmail, setAEmail] = useState("")
   const [aPassword, setAPassword] = useState("")
   const [aResume, setAResume] = useState("")
+  const [aResumePdf, setAResumePdf] = useState<File | null>(null)
   const [aObjective, setAObjective] = useState("")
   const [cName, setCName] = useState("")
   const [cEmail, setCEmail] = useState("")
@@ -125,11 +126,20 @@ export default function SignupPage() {
                   setError("")
                   setLoading(true)
                   try {
+                    let resumePdfBase64: string | undefined
+                    if (aResumePdf) {
+                      const buf = await aResumePdf.arrayBuffer()
+                      const bytes = new Uint8Array(buf)
+                      let binary = ""
+                      for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i])
+                      resumePdfBase64 = btoa(binary)
+                    }
                     await signupUser({
                       email: aEmail,
                       password: aPassword,
                       name: [aFirstName, aLastName].filter(Boolean).join(" ") || "Applicant",
-                      resume: aResume,
+                      resume: aResume || undefined,
+                      resumePdfBase64,
                       interests: skills,
                     })
                     router.push("/login?registered=1")
@@ -173,14 +183,30 @@ export default function SignupPage() {
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="resume">Resume / Summary</Label>
-                  <Textarea
-                    id="resume"
-                    placeholder="Paste your resume text or a brief summary of your experience..."
-                    className="min-h-[100px]"
-                    value={aResume}
-                    onChange={(e) => setAResume(e.target.value)}
-                  />
+                  <Label htmlFor="resume">Resume (PDF)</Label>
+                  <div className="flex flex-col gap-2">
+                    <label
+                      htmlFor="resume"
+                      className="flex cursor-pointer items-center gap-2 rounded-lg border border-dashed border-border px-4 py-3 text-sm text-muted-foreground transition-colors hover:border-primary/50 hover:text-foreground"
+                    >
+                      <input
+                        id="resume"
+                        type="file"
+                        accept="application/pdf"
+                        className="hidden"
+                        onChange={(e) => setAResumePdf(e.target.files?.[0] ?? null)}
+                      />
+                      <FileText className="h-4 w-4 shrink-0" />
+                      {aResumePdf ? aResumePdf.name : "Upload PDF"}
+                    </label>
+                    <p className="text-xs text-muted-foreground">Or paste text below</p>
+                    <Textarea
+                      placeholder="Paste resume text as fallback..."
+                      className="min-h-[80px]"
+                      value={aResume}
+                      onChange={(e) => setAResume(e.target.value)}
+                    />
+                  </div>
                 </div>
                 <div className="space-y-2">
                   <Label>Skills & Interests</Label>

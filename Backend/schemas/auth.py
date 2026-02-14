@@ -9,7 +9,8 @@ class SignupRequest(BaseModel):
     email: str
     password: str
     name: str = ""
-    resume: Optional[str] = None
+    resume: Optional[str] = None  # fallback pasted text when no PDF
+    resume_pdf_base64: Optional[str] = None  # base64-encoded PDF file
     interests: List[str] = Field(default_factory=list)
     company_name: str = ""
     website: str = ""

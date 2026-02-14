@@ -3,7 +3,6 @@ from pathlib import Path
 
 APP_DIR = Path(__file__).resolve().parent
 DB_PATH = APP_DIR / "hireup.db"
-
 # Allow frontend on common dev ports; regex allows any port on localhost/127.0.0.1
 CORS_ORIGINS = [
     "http://localhost:3000",
