@@ -1,6 +1,7 @@
 "use client"
 
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -10,6 +11,7 @@ import { Badge } from "@/components/ui/badge"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { ThemeToggle } from "@/components/theme-toggle"
 import { X } from "lucide-react"
+import { signupUser, signupCompany } from "@/lib/api"
 
 const SUGGESTED_SKILLS = [
   "React",
@@ -27,8 +29,23 @@ const SUGGESTED_SKILLS = [
 ]
 
 export default function SignupPage() {
+  const router = useRouter()
   const [skills, setSkills] = useState<string[]>([])
   const [skillInput, setSkillInput] = useState("")
+  const [aFirstName, setAFirstName] = useState("")
+  const [aLastName, setALastName] = useState("")
+  const [aEmail, setAEmail] = useState("")
+  const [aPassword, setAPassword] = useState("")
+  const [aResume, setAResume] = useState("")
+  const [aObjective, setAObjective] = useState("")
+  const [cName, setCName] = useState("")
+  const [cEmail, setCEmail] = useState("")
+  const [cPassword, setCPassword] = useState("")
+  const [cWebsite, setCWebsite] = useState("")
+  const [cDescription, setCDescription] = useState("")
+  const [cSize, setCSize] = useState("")
+  const [error, setError] = useState("")
+  const [loading, setLoading] = useState(false)
 
   const addSkill = (skill: string) => {
     const trimmed = skill.trim()
@@ -103,16 +120,34 @@ export default function SignupPage() {
             <TabsContent value="applicant">
               <form
                 className="mt-4 space-y-4"
-                onSubmit={(e) => e.preventDefault()}
+                onSubmit={async (e) => {
+                  e.preventDefault()
+                  setError("")
+                  setLoading(true)
+                  try {
+                    await signupUser({
+                      email: aEmail,
+                      password: aPassword,
+                      name: [aFirstName, aLastName].filter(Boolean).join(" ") || "Applicant",
+                      resume: aResume,
+                      interests: skills,
+                    })
+                    router.push("/login?registered=1")
+                  } catch (err) {
+                    setError(err instanceof Error ? err.message : "Signup failed")
+                  } finally {
+                    setLoading(false)
+                  }
+                }}
               >
                 <div className="grid grid-cols-2 gap-4">
                   <div className="space-y-2">
                     <Label htmlFor="first-name">First Name</Label>
-                    <Input id="first-name" placeholder="Jane" />
+                    <Input id="first-name" placeholder="Jane" value={aFirstName} onChange={(e) => setAFirstName(e.target.value)} />
                   </div>
                   <div className="space-y-2">
                     <Label htmlFor="last-name">Last Name</Label>
-                    <Input id="last-name" placeholder="Doe" />
+                    <Input id="last-name" placeholder="Doe" value={aLastName} onChange={(e) => setALastName(e.target.value)} />
                   </div>
                 </div>
                 <div className="space-y-2">
@@ -121,6 +156,9 @@ export default function SignupPage() {
                     id="a-email"
                     type="email"
                     placeholder="you@example.com"
+                    value={aEmail}
+                    onChange={(e) => setAEmail(e.target.value)}
+                    required
                   />
                 </div>
                 <div className="space-y-2">
@@ -129,6 +167,9 @@ export default function SignupPage() {
                     id="a-password"
                     type="password"
                     placeholder="Create a strong password"
+                    value={aPassword}
+                    onChange={(e) => setAPassword(e.target.value)}
+                    required
                   />
                 </div>
                 <div className="space-y-2">
@@ -137,6 +178,8 @@ export default function SignupPage() {
                     id="resume"
                     placeholder="Paste your resume text or a brief summary of your experience..."
                     className="min-h-[100px]"
+                    value={aResume}
+                    onChange={(e) => setAResume(e.target.value)}
                   />
                 </div>
                 <div className="space-y-2">
@@ -196,10 +239,13 @@ export default function SignupPage() {
                   <Input
                     id="objective"
                     placeholder="e.g., Full-stack SWE at an early-stage startup"
+                    value={aObjective}
+                    onChange={(e) => setAObjective(e.target.value)}
                   />
                 </div>
-                <Button className="w-full" type="submit">
-                  Create Applicant Account
+                {error && <p className="text-sm text-destructive">{error}</p>}
+                <Button className="w-full" type="submit" disabled={loading}>
+                  {loading ? "Creating account…" : "Create Applicant Account"}
                 </Button>
               </form>
             </TabsContent>
@@ -207,11 +253,30 @@ export default function SignupPage() {
             <TabsContent value="company">
               <form
                 className="mt-4 space-y-4"
-                onSubmit={(e) => e.preventDefault()}
+                onSubmit={async (e) => {
+                  e.preventDefault()
+                  setError("")
+                  setLoading(true)
+                  try {
+                    await signupCompany({
+                      email: cEmail,
+                      password: cPassword,
+                      company_name: cName,
+                      website: cWebsite,
+                      description: cDescription,
+                      company_size: cSize,
+                    })
+                    router.push("/login?registered=1")
+                  } catch (err) {
+                    setError(err instanceof Error ? err.message : "Signup failed")
+                  } finally {
+                    setLoading(false)
+                  }
+                }}
               >
                 <div className="space-y-2">
                   <Label htmlFor="company-name">Company Name</Label>
-                  <Input id="company-name" placeholder="Acme Inc." />
+                  <Input id="company-name" placeholder="Acme Inc." value={cName} onChange={(e) => setCName(e.target.value)} />
                 </div>
                 <div className="space-y-2">
                   <Label htmlFor="c-email">Company Email</Label>
@@ -219,6 +284,9 @@ export default function SignupPage() {
                     id="c-email"
                     type="email"
                     placeholder="hiring@company.com"
+                    value={cEmail}
+                    onChange={(e) => setCEmail(e.target.value)}
+                    required
                   />
                 </div>
                 <div className="space-y-2">
@@ -227,6 +295,9 @@ export default function SignupPage() {
                     id="c-password"
                     type="password"
                     placeholder="Create a strong password"
+                    value={cPassword}
+                    onChange={(e) => setCPassword(e.target.value)}
+                    required
                   />
                 </div>
                 <div className="space-y-2">
@@ -235,6 +306,8 @@ export default function SignupPage() {
                     id="website"
                     type="url"
                     placeholder="https://company.com"
+                    value={cWebsite}
+                    onChange={(e) => setCWebsite(e.target.value)}
                   />
                 </div>
                 <div className="space-y-2">
@@ -243,6 +316,8 @@ export default function SignupPage() {
                     id="company-desc"
                     placeholder="Tell applicants about your company, culture, and mission..."
                     className="min-h-[100px]"
+                    value={cDescription}
+                    onChange={(e) => setCDescription(e.target.value)}
                   />
                 </div>
                 <div className="space-y-2">
@@ -250,10 +325,13 @@ export default function SignupPage() {
                   <Input
                     id="company-size"
                     placeholder="e.g., 10-50 employees"
+                    value={cSize}
+                    onChange={(e) => setCSize(e.target.value)}
                   />
                 </div>
-                <Button className="w-full" type="submit">
-                  Create Company Account
+                {error && <p className="text-sm text-destructive">{error}</p>}
+                <Button className="w-full" type="submit" disabled={loading}>
+                  {loading ? "Creating account…" : "Create Company Account"}
                 </Button>
               </form>
             </TabsContent>

@@ -1,16 +1,22 @@
 "use client"
 
 import Link from "next/link"
+import { useRouter } from "next/navigation"
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { ThemeToggle } from "@/components/theme-toggle"
+import { login, setAuth, type AccountType } from "@/lib/api"
 
 export default function LoginPage() {
+  const router = useRouter()
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
+  const [accountType, setAccountType] = useState<AccountType>("user")
+  const [error, setError] = useState("")
+  const [loading, setLoading] = useState(false)
 
   return (
     <div className="relative flex min-h-screen">
@@ -58,7 +64,7 @@ export default function LoginPage() {
             Log in to your account to continue.
           </p>
 
-          <Tabs defaultValue="applicant" className="mt-6">
+          <Tabs defaultValue="applicant" className="mt-6" onValueChange={(v) => setAccountType(v === "company" ? "company" : "user")}>
             <TabsList className="w-full">
               <TabsTrigger value="applicant" className="flex-1">
                 Applicant
@@ -71,7 +77,20 @@ export default function LoginPage() {
             <TabsContent value="applicant">
               <form
                 className="mt-4 space-y-4"
-                onSubmit={(e) => e.preventDefault()}
+                onSubmit={async (e) => {
+                  e.preventDefault()
+                  setError("")
+                  setLoading(true)
+                  try {
+                    const data = await login("user", email, password)
+                    setAuth(data.token, "user", data.id ?? "")
+                    router.push("/dashboard")
+                  } catch (err) {
+                    setError(err instanceof Error ? err.message : "Login failed")
+                  } finally {
+                    setLoading(false)
+                  }
+                }}
               >
                 <div className="space-y-2">
                   <Label htmlFor="applicant-email">Email</Label>
@@ -81,6 +100,7 @@ export default function LoginPage() {
                     placeholder="you@example.com"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
+                    required
                   />
                 </div>
                 <div className="space-y-2">
@@ -91,10 +111,12 @@ export default function LoginPage() {
                     placeholder="Enter your password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
+                    required
                   />
                 </div>
-                <Button className="w-full" type="submit">
-                  Log in as Applicant
+                {error && <p className="text-sm text-destructive">{error}</p>}
+                <Button className="w-full" type="submit" disabled={loading}>
+                  {loading ? "Signing in…" : "Log in as Applicant"}
                 </Button>
               </form>
             </TabsContent>
@@ -102,7 +124,20 @@ export default function LoginPage() {
             <TabsContent value="company">
               <form
                 className="mt-4 space-y-4"
-                onSubmit={(e) => e.preventDefault()}
+                onSubmit={async (e) => {
+                  e.preventDefault()
+                  setError("")
+                  setLoading(true)
+                  try {
+                    const data = await login("company", email, password)
+                    setAuth(data.token, "company", data.id ?? "")
+                    router.push("/company/postings")
+                  } catch (err) {
+                    setError(err instanceof Error ? err.message : "Login failed")
+                  } finally {
+                    setLoading(false)
+                  }
+                }}
               >
                 <div className="space-y-2">
                   <Label htmlFor="company-email">Company Email</Label>
@@ -112,6 +147,7 @@ export default function LoginPage() {
                     placeholder="you@company.com"
                     value={email}
                     onChange={(e) => setEmail(e.target.value)}
+                    required
                   />
                 </div>
                 <div className="space-y-2">
@@ -122,10 +158,12 @@ export default function LoginPage() {
                     placeholder="Enter your password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}
+                    required
                   />
                 </div>
-                <Button className="w-full" type="submit">
-                  Log in as Company
+                {error && <p className="text-sm text-destructive">{error}</p>}
+                <Button className="w-full" type="submit" disabled={loading}>
+                  {loading ? "Signing in…" : "Log in as Company"}
                 </Button>
               </form>
             </TabsContent>
