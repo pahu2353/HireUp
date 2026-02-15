@@ -5,122 +5,156 @@ import { DashboardShell } from "@/components/dashboard/dashboard-shell"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Send, UserCheck } from "lucide-react"
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
 import { getAuth } from "@/lib/api"
-import { getCompanyPostings } from "@/lib/company-jobs"
-import { getTopCandidates, submitIntervieweeList, TopCandidate } from "@/lib/company-api"
+import {
+  CompanyApplicant,
+  getCompanyApplicants,
+  getCompanyJobs,
+  updateApplicationStatus,
+} from "@/lib/company-api"
+
+const STATUS_LABEL: Record<string, string> = {
+  submitted: "Submitted",
+  rejected_pre_interview: "Candidate no longer under consideration (pre-interview)",
+  in_progress: "In progress (interview)",
+  rejected_post_interview: "Candidate no longer under consideration (post-interview)",
+  offer: "Offer",
+}
 
 export default function CandidatesPage() {
-  const [selected, setSelected] = useState<string[]>([])
-  const [candidates, setCandidates] = useState<TopCandidate[]>([])
   const [companyId, setCompanyId] = useState("")
   const [jobId, setJobId] = useState("")
-  const [prompt, setPrompt] = useState("python react typescript")
+  const [applicants, setApplicants] = useState<CompanyApplicant[]>([])
   const [error, setError] = useState("")
   const [info, setInfo] = useState("")
   const [isLoading, setIsLoading] = useState(false)
-  const [isSubmitting, setIsSubmitting] = useState(false)
+  const [isUpdating, setIsUpdating] = useState<string | null>(null)
+
+  const [scoreModalOpen, setScoreModalOpen] = useState(false)
+  const [pendingApplicationId, setPendingApplicationId] = useState("")
+  const [pendingStatus, setPendingStatus] = useState<"rejected_post_interview" | "offer" | "">("")
+  const [technicalScore, setTechnicalScore] = useState("")
 
   useEffect(() => {
     const auth = getAuth()
     if (!auth || auth.accountType !== "company") {
-      setError("Log in as a company account to view candidates.")
+      setError("Log in as a company account to view applicants.")
       return
     }
     setCompanyId(auth.id)
-    const postings = getCompanyPostings(auth.id)
-    if (postings.length > 0) {
-      setJobId(postings[0].id)
-    }
+    getCompanyJobs(auth.id)
+      .then((res) => {
+        if (res.jobs.length > 0) setJobId(res.jobs[0].id)
+      })
+      .catch(() => {})
   }, [])
 
-  const toggleSelect = (id: string) => {
-    setSelected((prev) => (prev.includes(id) ? prev.filter((s) => s !== id) : [...prev, id]))
-  }
-
-  const loadCandidates = async () => {
-    if (!jobId.trim() || !prompt.trim()) return
+  const loadApplicants = async () => {
+    if (!companyId) return
     setError("")
     setInfo("")
     setIsLoading(true)
-    setSelected([])
     try {
-      const res = await getTopCandidates(jobId.trim(), prompt.trim())
-      setCandidates(res.top_candidates)
-      setInfo(`Loaded ${res.top_candidates.length} candidates for job ${res.job_id}.`)
+      const res = await getCompanyApplicants(companyId, jobId.trim() || undefined)
+      setApplicants(res.applicants)
+      setInfo(`Loaded ${res.applicants.length} applicants${jobId ? ` for job ${jobId}` : ""}.`)
     } catch (e) {
-      setCandidates([])
-      setError(e instanceof Error ? e.message : "Failed to load top candidates")
+      setApplicants([])
+      setError(e instanceof Error ? e.message : "Failed to load applicants")
     } finally {
       setIsLoading(false)
     }
   }
 
-  const submitList = async () => {
-    if (!jobId || selected.length === 0) return
+  const updateStatus = async (
+    applicationId: string,
+    status: "rejected_pre_interview" | "in_progress" | "rejected_post_interview" | "offer",
+    score?: number,
+  ) => {
+    if (!companyId) return
     setError("")
     setInfo("")
-    setIsSubmitting(true)
+    setIsUpdating(applicationId)
     try {
-      const res = await submitIntervieweeList(jobId, selected)
-      setInfo(`Submitted ${res.user_ids.length} interviewees for job ${res.job_id}.`)
+      const res = await updateApplicationStatus({
+        company_id: companyId,
+        application_id: applicationId,
+        status,
+        technical_score: score,
+      })
+      setApplicants((prev) =>
+        prev.map((a) =>
+          a.application_id === applicationId
+            ? {
+                ...a,
+                status: res.application.status,
+                technical_score: res.application.technical_score,
+              }
+            : a,
+        ),
+      )
+      setInfo(`Application moved to: ${STATUS_LABEL[status]}`)
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to submit interview list")
+      setError(e instanceof Error ? e.message : "Failed to update status")
     } finally {
-      setIsSubmitting(false)
+      setIsUpdating(null)
     }
+  }
+
+  const openScoreModal = (applicationId: string, status: "rejected_post_interview" | "offer") => {
+    setPendingApplicationId(applicationId)
+    setPendingStatus(status)
+    setTechnicalScore("")
+    setScoreModalOpen(true)
+  }
+
+  const submitScoreModal = async () => {
+    const score = Number(technicalScore)
+    if (!Number.isInteger(score) || score < 1 || score > 10) {
+      setError("Technical score must be an integer from 1 to 10.")
+      return
+    }
+    if (!pendingApplicationId || !pendingStatus) return
+    setScoreModalOpen(false)
+    await updateStatus(pendingApplicationId, pendingStatus, score)
+    setPendingApplicationId("")
+    setPendingStatus("")
+    setTechnicalScore("")
   }
 
   return (
     <DashboardShell role="company">
-      <div className="mb-8 flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">Top Candidates</h1>
-          <p className="mt-1 text-muted-foreground">
-            Query ranked candidates and submit interviewee lists through the company API.
-          </p>
-        </div>
-        {selected.length > 0 && (
-          <div className="flex items-center gap-3">
-            <span className="text-sm text-muted-foreground">{selected.length} selected</span>
-            <Button size="sm" onClick={submitList} disabled={isSubmitting}>
-              <Send className="mr-1 h-3.5 w-3.5" />
-              {isSubmitting ? "Submitting..." : "Submit Interview List"}
-            </Button>
-          </div>
-        )}
+      <div className="mb-8">
+        <h1 className="text-2xl font-bold text-foreground">Interview Workflow</h1>
+        <p className="mt-1 text-muted-foreground">Manage candidate status transitions with required scoring.</p>
       </div>
 
       <Card className="mb-4">
         <CardContent className="pt-6">
           <div className="grid gap-4 md:grid-cols-3">
-            <div className="space-y-2">
-              <Label htmlFor="job-id">Job ID</Label>
+            <div className="space-y-2 md:col-span-2">
+              <Label htmlFor="job-id">Job ID (optional filter)</Label>
               <Input
                 id="job-id"
                 value={jobId}
                 onChange={(e) => setJobId(e.target.value)}
-                placeholder="Paste job id from postings page"
+                placeholder="Leave blank for all job postings"
               />
             </div>
-            <div className="space-y-2 md:col-span-2">
-              <Label htmlFor="prompt">Candidate Prompt</Label>
-              <Input
-                id="prompt"
-                value={prompt}
-                onChange={(e) => setPrompt(e.target.value)}
-                placeholder="e.g. strong backend + distributed systems"
-              />
+            <div className="flex items-end">
+              <Button onClick={loadApplicants} disabled={isLoading || !companyId} className="w-full">
+                {isLoading ? "Loading..." : "Load Applicants"}
+              </Button>
             </div>
-          </div>
-          <div className="mt-4 flex items-center gap-3">
-            <Button onClick={loadCandidates} disabled={isLoading || !companyId}>
-              {isLoading ? "Loading..." : "Get Top Candidates"}
-            </Button>
-            {!companyId ? <span className="text-xs text-muted-foreground">No company session</span> : null}
           </div>
         </CardContent>
       </Card>
@@ -129,40 +163,115 @@ export default function CandidatesPage() {
       {info ? <p className="mb-4 text-sm text-muted-foreground">{info}</p> : null}
 
       <div className="space-y-3">
-        {candidates.map((candidate) => (
-          <Card key={candidate.user_id} className={selected.includes(candidate.user_id) ? "border-primary/30" : ""}>
-            <CardHeader className="pb-2">
-              <div className="flex items-center gap-4">
-                <Checkbox
-                  checked={selected.includes(candidate.user_id)}
-                  onCheckedChange={() => toggleSelect(candidate.user_id)}
-                />
-                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-secondary">
-                  <UserCheck className="h-4 w-4 text-foreground" />
-                </div>
-                <div className="flex-1">
-                  <div className="flex items-center justify-between">
-                    <CardTitle className="text-base">{candidate.user_id}</CardTitle>
-                    <div className="rounded-full bg-primary/10 px-2.5 py-0.5">
-                      <span className="text-xs font-semibold text-primary">score {candidate.score}</span>
-                    </div>
+        {applicants.map((candidate) => {
+          const canMoveFromSubmitted = candidate.status === "submitted"
+          const canMoveFromInProgress = candidate.status === "in_progress"
+          return (
+            <Card key={candidate.application_id}>
+              <CardHeader className="pb-2">
+                <div className="flex items-center justify-between gap-3">
+                  <div>
+                    <CardTitle className="text-base">{candidate.user_name || candidate.user_id}</CardTitle>
+                    <CardDescription>
+                      {candidate.user_email} • {candidate.job_title}
+                    </CardDescription>
                   </div>
-                  <CardDescription className="mt-0.5">{candidate.reasoning}</CardDescription>
+                  <Badge variant="secondary">{STATUS_LABEL[candidate.status] || candidate.status}</Badge>
                 </div>
-              </div>
-            </CardHeader>
-            <CardContent className="pl-[4.5rem]">
-              <div className="flex flex-wrap gap-2">
-                {candidate.skills.map((skill) => (
-                  <Badge key={skill} variant="secondary" className="text-xs">
-                    {skill}
-                  </Badge>
-                ))}
-              </div>
-            </CardContent>
-          </Card>
-        ))}
+              </CardHeader>
+              <CardContent>
+                <p className="mb-3 text-sm text-muted-foreground line-clamp-3">
+                  {candidate.resume_text || "No resume summary available."}
+                </p>
+                <div className="mb-3 flex flex-wrap gap-2">
+                  {candidate.skills.map((skill) => (
+                    <Badge key={skill} variant="secondary" className="text-xs">
+                      {skill}
+                    </Badge>
+                  ))}
+                </div>
+                <div className="mb-3 text-xs text-muted-foreground">
+                  Technical score: {candidate.technical_score ?? "-"}
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {canMoveFromSubmitted ? (
+                    <>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={isUpdating === candidate.application_id}
+                        onClick={() => updateStatus(candidate.application_id, "rejected_pre_interview")}
+                      >
+                        Reject
+                      </Button>
+                      <Button
+                        size="sm"
+                        disabled={isUpdating === candidate.application_id}
+                        onClick={() => updateStatus(candidate.application_id, "in_progress")}
+                      >
+                        Move to In Progress
+                      </Button>
+                    </>
+                  ) : null}
+                  {canMoveFromInProgress ? (
+                    <>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={isUpdating === candidate.application_id}
+                        onClick={() => openScoreModal(candidate.application_id, "rejected_post_interview")}
+                      >
+                        Reject
+                      </Button>
+                      <Button
+                        size="sm"
+                        disabled={isUpdating === candidate.application_id}
+                        onClick={() => openScoreModal(candidate.application_id, "offer")}
+                      >
+                        Offer
+                      </Button>
+                    </>
+                  ) : null}
+                </div>
+              </CardContent>
+            </Card>
+          )
+        })}
       </div>
+
+      <Dialog
+        open={scoreModalOpen}
+        onOpenChange={(next) => {
+          if (!next && pendingApplicationId && pendingStatus) {
+            setError("You must submit the technical score before closing this dialog.")
+          }
+          setScoreModalOpen(next)
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Technical Skills Score Required</DialogTitle>
+            <DialogDescription>
+              Rank this candidate's technical skills from 1 to 10 before moving to{" "}
+              {pendingStatus ? STATUS_LABEL[pendingStatus] : "the next stage"}.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-3">
+            <Label htmlFor="tech-score">Technical score (1-10)</Label>
+            <Input
+              id="tech-score"
+              type="number"
+              min={1}
+              max={10}
+              value={technicalScore}
+              onChange={(e) => setTechnicalScore(e.target.value)}
+            />
+            <Button onClick={submitScoreModal} className="w-full">
+              Submit
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
     </DashboardShell>
   )
 }

@@ -17,7 +17,7 @@ import {
   Briefcase,
   CheckCircle2,
 } from "lucide-react"
-import { getAuth, getMatchedJobs, applyJob } from "@/lib/api"
+import { getAuth, getMatchedJobs, applyJob, getUserApplications } from "@/lib/api"
 import { toast } from "sonner"
 
 interface Job {
@@ -32,6 +32,23 @@ interface Job {
   created_at: string
   company_name: string
   applied: boolean
+  application_status?: string
+}
+
+interface UserApplication {
+  id: string
+  user_id: string
+  job_id: string
+  status: string
+}
+
+function toApplicantStatus(status?: string): string {
+  const normalized = (status || "").toLowerCase()
+  if (normalized === "rejected_pre_interview" || normalized === "rejected_post_interview") return "Rejected"
+  if (normalized === "in_progress") return "In Progress"
+  if (normalized === "offer") return "Offer"
+  if (normalized === "submitted") return "Applied"
+  return normalized ? normalized.charAt(0).toUpperCase() + normalized.slice(1) : "Applied"
 }
 
 export default function ApplicantDashboard() {
@@ -49,17 +66,39 @@ export default function ApplicantDashboard() {
       return
     }
     setUserId(auth.id)
-    getMatchedJobs(auth.id)
-      .then(setJobs)
-      .catch(() => toast.error("Failed to load matched jobs"))
-      .finally(() => setLoading(false))
+    const load = async () => {
+      try {
+        const [matchedJobs, apps] = await Promise.all([
+          getMatchedJobs(auth.id),
+          getUserApplications(auth.id) as Promise<UserApplication[]>,
+        ])
+        const byJobId = new Map(apps.map((a) => [a.job_id, a.status]))
+        const enriched = matchedJobs.map((job: Job) => ({
+          ...job,
+          applied: Boolean(byJobId.get(job.id) || job.applied),
+          application_status: byJobId.get(job.id),
+        }))
+        setJobs(enriched)
+      } catch {
+        toast.error("Failed to load matched jobs")
+      } finally {
+        setLoading(false)
+      }
+    }
+    load()
+    const intervalId = window.setInterval(load, 5000)
+    return () => window.clearInterval(intervalId)
   }, [])
 
   const handleApply = async (jobId: string) => {
     if (!userId) return
     try {
       await applyJob(userId, jobId)
-      setJobs(jobs.map(j => j.id === jobId ? { ...j, applied: true } : j))
+      setJobs(
+        jobs.map((j) =>
+          j.id === jobId ? { ...j, applied: true, application_status: "submitted" } : j
+        )
+      )
       toast.success("Application submitted successfully!")
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Failed to apply")
@@ -110,6 +149,7 @@ export default function ApplicantDashboard() {
         <div className="space-y-4">
           {jobs.map((job) => {
             const hasApplied = job.applied
+            const statusLabel = toApplicantStatus(job.application_status)
             return (
               <Card key={job.id} className="transition-colors hover:border-primary/20">
                 <CardHeader className="pb-3">
@@ -162,7 +202,7 @@ export default function ApplicantDashboard() {
                       {hasApplied ? (
                         <>
                           <CheckCircle2 className="mr-1 h-3.5 w-3.5" />
-                          Applied
+                          {statusLabel}
                         </>
                       ) : (
                         "Apply"
@@ -178,4 +218,3 @@ export default function ApplicantDashboard() {
     </DashboardShell>
   )
 }
-

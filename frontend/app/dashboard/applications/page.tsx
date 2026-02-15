@@ -25,13 +25,26 @@ interface Application {
   company_name: string
 }
 
+function toApplicantStatus(status: string): string {
+  const normalized = (status || "").toLowerCase()
+  if (normalized === "rejected_pre_interview" || normalized === "rejected_post_interview") {
+    return "Rejected"
+  }
+  if (normalized === "in_progress") return "In Progress"
+  if (normalized === "offer") return "Offer"
+  if (normalized === "submitted") return "Applied"
+  return normalized ? normalized.charAt(0).toUpperCase() + normalized.slice(1) : "Applied"
+}
+
 function getStatusColor(status: string): string {
   switch (status.toLowerCase()) {
+    case "in progress":
     case "interview scheduled":
       return "bg-primary/10 text-primary"
+    case "applied":
+    case "submitted":
     case "under review":
       return "bg-yellow-500/10 text-yellow-600 dark:text-yellow-400"
-    case "accepted":
     case "offer":
       return "bg-green-500/10 text-green-600 dark:text-green-400"
     case "rejected":
@@ -64,10 +77,14 @@ export default function ApplicationsPage() {
       window.location.href = "/login"
       return
     }
-    getUserApplications(auth.id)
-      .then(setApplications)
-      .catch(() => toast.error("Failed to load applications"))
-      .finally(() => setLoading(false))
+    const load = () =>
+      getUserApplications(auth.id)
+        .then(setApplications)
+        .catch(() => toast.error("Failed to load applications"))
+        .finally(() => setLoading(false))
+    load()
+    const intervalId = window.setInterval(load, 5000)
+    return () => window.clearInterval(intervalId)
   }, [])
 
   if (loading) {
@@ -112,11 +129,8 @@ export default function ApplicationsPage() {
                       <CardDescription>{app.company_name || "Company"}</CardDescription>
                     </div>
                   </div>
-                  <Badge
-                    variant="secondary"
-                    className={getStatusColor(app.status)}
-                  >
-                    {app.status.charAt(0).toUpperCase() + app.status.slice(1)}
+                  <Badge variant="secondary" className={getStatusColor(toApplicantStatus(app.status))}>
+                    {toApplicantStatus(app.status)}
                   </Badge>
                 </div>
               </CardHeader>
@@ -132,4 +146,3 @@ export default function ApplicationsPage() {
     </DashboardShell>
   )
 }
-

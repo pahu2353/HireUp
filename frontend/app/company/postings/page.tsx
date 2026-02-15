@@ -24,12 +24,23 @@ import {
 } from "@/components/ui/dialog"
 import { Plus, Users } from "lucide-react"
 import { getAuth } from "@/lib/api"
-import { createCompanyJobPosting } from "@/lib/company-api"
-import { CompanyPosting, getCompanyPostings, saveCompanyPostings } from "@/lib/company-jobs"
+import { createCompanyJobPosting, getCompanyApplicants, getCompanyJobs } from "@/lib/company-api"
+
+interface CompanyPostingView {
+  id: string
+  title: string
+  location: string
+  salary: string
+  type: string
+  description: string
+  requirements: string[]
+  applicantCount: number
+  status: string
+}
 
 export default function PostingsPage() {
   const [companyId, setCompanyId] = useState("")
-  const [postings, setPostings] = useState<CompanyPosting[]>([])
+  const [postings, setPostings] = useState<CompanyPostingView[]>([])
   const [open, setOpen] = useState(false)
   const [newTitle, setNewTitle] = useState("")
   const [newLocation, setNewLocation] = useState("Remote")
@@ -39,6 +50,29 @@ export default function PostingsPage() {
   const [error, setError] = useState("")
   const [isCreating, setIsCreating] = useState(false)
 
+  const loadCompanyData = async (id: string) => {
+    const [jobsRes, applicantsRes] = await Promise.all([
+      getCompanyJobs(id),
+      getCompanyApplicants(id),
+    ])
+    const applicantCounts = applicantsRes.applicants.reduce<Record<string, number>>((acc, app) => {
+      acc[app.job_id] = (acc[app.job_id] ?? 0) + 1
+      return acc
+    }, {})
+    const mapped = jobsRes.jobs.map((job) => ({
+      id: job.id,
+      title: job.title,
+      location: job.location || "Remote",
+      salary: job.salary_range || "TBD",
+      type: "Full-time",
+      description: job.description || "",
+      requirements: Array.isArray(job.skills) ? job.skills : [],
+      applicantCount: applicantCounts[job.id] ?? 0,
+      status: job.status || "open",
+    }))
+    setPostings(mapped)
+  }
+
   useEffect(() => {
     const auth = getAuth()
     if (!auth || auth.accountType !== "company") {
@@ -46,7 +80,9 @@ export default function PostingsPage() {
       return
     }
     setCompanyId(auth.id)
-    setPostings(getCompanyPostings(auth.id))
+    loadCompanyData(auth.id).catch((e) => {
+      setError(e instanceof Error ? e.message : "Failed to load postings")
+    })
   }, [])
 
   const handleCreate = async () => {
@@ -69,22 +105,7 @@ export default function PostingsPage() {
         salary_range: newSalary.trim() || "TBD",
       })
 
-      const newPosting: CompanyPosting = {
-        id: response.job_id,
-        title: newTitle.trim(),
-        location: newLocation.trim() || "Remote",
-        salary: newSalary.trim() || "TBD",
-        type: "Full-time",
-        description: newDescription.trim(),
-        requirements,
-        applicantCount: 0,
-        status: "active",
-        companyId,
-      }
-
-      const next = [newPosting, ...postings]
-      setPostings(next)
-      saveCompanyPostings(companyId, next)
+      await loadCompanyData(companyId)
 
       setNewTitle("")
       setNewLocation("Remote")
@@ -195,7 +216,7 @@ export default function PostingsPage() {
                 <Badge
                   variant="secondary"
                   className={
-                    posting.status === "active"
+                    posting.status === "open" || posting.status === "active"
                       ? "bg-primary/10 text-primary"
                       : "bg-secondary text-muted-foreground"
                   }

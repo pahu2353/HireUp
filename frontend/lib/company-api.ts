@@ -35,11 +35,44 @@ export interface CompanyDashboardResponse {
     ai_agent_queries: number
     interview_rate_percent: number
   }
+  workflow: {
+    submitted: number
+    rejected_pre_interview: number
+    in_progress: number
+    rejected_post_interview: number
+    offer: number
+  }
   recent_activity: Array<{
     action: string
     detail: string
     time: string
   }>
+}
+
+export interface CompanyJob {
+  id: string
+  company_id: string
+  title: string
+  description: string
+  skills: string[]
+  location: string
+  salary_range: string
+  status: string
+  created_at: string
+}
+
+export interface CompanyApplicant {
+  application_id: string
+  user_id: string
+  job_id: string
+  status: string
+  created_at: string
+  job_title: string
+  user_name: string
+  user_email: string
+  resume_text: string
+  skills: string[]
+  technical_score: number | null
 }
 
 async function postJson<T>(path: string, payload: unknown): Promise<T> {
@@ -100,4 +133,31 @@ export async function getCompanyDashboard(companyId: string) {
   const data = await res.json().catch(() => ({}))
   if (!res.ok) throw new Error((data as { detail?: string }).detail ?? "Request failed")
   return data as CompanyDashboardResponse
+}
+
+export async function getCompanyJobs(companyId: string) {
+  const url = `${getApiUrl("/get-company-jobs")}?company_id=${encodeURIComponent(companyId)}`
+  const res = await fetch(url)
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error((data as { detail?: string }).detail ?? "Request failed")
+  return data as { company_id: string; jobs: CompanyJob[] }
+}
+
+export async function getCompanyApplicants(companyId: string, jobId?: string) {
+  const qs = new URLSearchParams({ company_id: companyId })
+  if (jobId) qs.set("job_id", jobId)
+  const url = `${getApiUrl("/get-company-applicants")}?${qs.toString()}`
+  const res = await fetch(url)
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error((data as { detail?: string }).detail ?? "Request failed")
+  return data as { company_id: string; job_id?: string; applicants: CompanyApplicant[] }
+}
+
+export async function updateApplicationStatus(payload: {
+  company_id: string
+  application_id: string
+  status: "submitted" | "rejected_pre_interview" | "in_progress" | "rejected_post_interview" | "offer"
+  technical_score?: number
+}) {
+  return postJson<{ status: string; application: CompanyApplicant }>("/update-application-status", payload)
 }

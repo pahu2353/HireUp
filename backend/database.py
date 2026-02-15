@@ -19,6 +19,17 @@ def get_conn() -> sqlite3.Connection:
     return conn
 
 
+def _ensure_company_profile_columns(conn: sqlite3.Connection) -> None:
+    for stmt in (
+        "ALTER TABLE companies ADD COLUMN stage TEXT",
+        "ALTER TABLE companies ADD COLUMN culture_benefits TEXT",
+    ):
+        try:
+            conn.execute(stmt)
+        except sqlite3.OperationalError:
+            pass
+
+
 def init_db() -> None:
     with get_conn() as conn:
         conn.executescript(
@@ -73,6 +84,7 @@ def init_db() -> None:
                 user_id TEXT NOT NULL,
                 job_id TEXT NOT NULL,
                 status TEXT DEFAULT 'submitted',
+                technical_score INTEGER,
                 created_at TEXT DEFAULT (datetime('now')),
                 FOREIGN KEY (user_id) REFERENCES users(id),
                 FOREIGN KEY (job_id) REFERENCES jobs(id)
@@ -98,14 +110,11 @@ def init_db() -> None:
                 pass
 
         # Company migrations
-        for stmt in (
-            "ALTER TABLE companies ADD COLUMN stage TEXT",
-            "ALTER TABLE companies ADD COLUMN culture_benefits TEXT",
-        ):
-            try:
-                conn.execute(stmt)
-            except sqlite3.OperationalError:
-                pass
+        _ensure_company_profile_columns(conn)
+        try:
+            conn.execute("ALTER TABLE applications ADD COLUMN technical_score INTEGER")
+        except sqlite3.OperationalError:
+            pass
 
 
 def hash_password(password: str) -> str:
@@ -296,6 +305,8 @@ def create_company(
     stage: str = "",
     culture_benefits: str = "",
 ) -> Optional[Dict[str, Any]]:
+    with get_conn() as conn:
+        _ensure_company_profile_columns(conn)
     if get_company_by_email(email):
         return None
 
@@ -335,6 +346,7 @@ def create_company(
 
 def get_company_by_email(email: str) -> Optional[Dict[str, Any]]:
     with get_conn() as conn:
+        _ensure_company_profile_columns(conn)
         row = conn.execute(
             """
             SELECT id, email, password_hash, company_name, website, description, company_size, stage, culture_benefits
@@ -368,6 +380,7 @@ def verify_company(email: str, password: str) -> Optional[Dict[str, Any]]:
 
 def get_company_by_id(company_id: str) -> Optional[Dict[str, Any]]:
     with get_conn() as conn:
+        _ensure_company_profile_columns(conn)
         row = conn.execute(
             """
             SELECT id, email, company_name, website, description, company_size, stage, culture_benefits
@@ -390,6 +403,7 @@ def update_company_profile(
     culture_benefits: str,
 ) -> Optional[Dict[str, Any]]:
     with get_conn() as conn:
+        _ensure_company_profile_columns(conn)
         row = conn.execute("SELECT id FROM companies WHERE id = ?", (company_id,)).fetchone()
         if not row:
             return None
@@ -495,17 +509,23 @@ def create_application(user_id: str, job_id: str) -> Dict[str, Any]:
     app_id = str(uuid4())
     with get_conn() as conn:
         conn.execute(
-            "INSERT INTO applications (id, user_id, job_id, status) VALUES (?, ?, ?, ?)",
-            (app_id, user_id, job_id, "submitted"),
+            "INSERT INTO applications (id, user_id, job_id, status, technical_score) VALUES (?, ?, ?, ?, ?)",
+            (app_id, user_id, job_id, "submitted", None),
         )
-    return {"id": app_id, "user_id": user_id, "job_id": job_id, "status": "submitted"}
+    return {
+        "id": app_id,
+        "user_id": user_id,
+        "job_id": job_id,
+        "status": "submitted",
+        "technical_score": None,
+    }
 
 
 def get_user_applications(user_id: str) -> List[Dict[str, Any]]:
     with get_conn() as conn:
         rows = conn.execute(
             """
-            SELECT a.id, a.user_id, a.job_id, a.status, a.created_at,
+            SELECT a.id, a.user_id, a.job_id, a.status, a.technical_score, a.created_at,
                    j.title, j.location, j.salary_range, c.company_name
             FROM applications a
             LEFT JOIN jobs j ON a.job_id = j.id
@@ -525,3 +545,106 @@ def check_application_exists(user_id: str, job_id: str) -> bool:
             (user_id, job_id),
         ).fetchone()
     return row is not None
+
+
+def get_company_applications(company_id: str, job_id: str | None = None) -> List[Dict[str, Any]]:
+    query = """
+        SELECT
+            a.id AS application_id,
+            a.user_id,
+            a.job_id,
+            a.status,
+            a.technical_score,
+            a.created_at,
+            j.title AS job_title,
+            u.name AS user_name,
+            u.email AS user_email,
+            u.resume_text,
+            u.interests
+        FROM applications a
+        INNER JOIN jobs j ON a.job_id = j.id
+        INNER JOIN users u ON a.user_id = u.id
+        WHERE j.company_id = ?
+    """
+    params: list[Any] = [company_id]
+    if job_id:
+        query += " AND a.job_id = ?"
+        params.append(job_id)
+    query += " ORDER BY a.created_at DESC"
+
+    with get_conn() as conn:
+        rows = conn.execute(query, tuple(params)).fetchall()
+    return [dict(row) for row in rows]
+
+
+def get_company_application_stats(company_id: str) -> Dict[str, int]:
+    with get_conn() as conn:
+        row = conn.execute(
+            """
+            SELECT
+                SUM(CASE WHEN a.status = 'submitted' THEN 1 ELSE 0 END) AS submitted,
+                SUM(CASE WHEN a.status = 'rejected_pre_interview' THEN 1 ELSE 0 END) AS rejected_pre_interview,
+                SUM(CASE WHEN a.status = 'in_progress' THEN 1 ELSE 0 END) AS in_progress,
+                SUM(CASE WHEN a.status = 'rejected_post_interview' THEN 1 ELSE 0 END) AS rejected_post_interview,
+                SUM(CASE WHEN a.status = 'offer' THEN 1 ELSE 0 END) AS offer
+            FROM applications a
+            INNER JOIN jobs j ON a.job_id = j.id
+            WHERE j.company_id = ?
+            """,
+            (company_id,),
+        ).fetchone()
+    return {
+        "submitted": int((row["submitted"] or 0) if row else 0),
+        "rejected_pre_interview": int((row["rejected_pre_interview"] or 0) if row else 0),
+        "in_progress": int((row["in_progress"] or 0) if row else 0),
+        "rejected_post_interview": int((row["rejected_post_interview"] or 0) if row else 0),
+        "offer": int((row["offer"] or 0) if row else 0),
+    }
+
+
+def update_company_application_status(
+    company_id: str,
+    application_id: str,
+    status: str,
+    technical_score: int | None,
+) -> Optional[Dict[str, Any]]:
+    with get_conn() as conn:
+        row = conn.execute(
+            """
+            SELECT a.id
+            FROM applications a
+            INNER JOIN jobs j ON a.job_id = j.id
+            WHERE a.id = ? AND j.company_id = ?
+            """,
+            (application_id, company_id),
+        ).fetchone()
+        if not row:
+            return None
+        conn.execute(
+            "UPDATE applications SET status = ?, technical_score = ? WHERE id = ?",
+            (status, technical_score, application_id),
+        )
+
+    with get_conn() as conn:
+        updated = conn.execute(
+            """
+            SELECT
+                a.id AS application_id,
+                a.user_id,
+                a.job_id,
+                a.status,
+                a.technical_score,
+                a.created_at,
+                j.title AS job_title,
+                u.name AS user_name,
+                u.email AS user_email,
+                u.resume_text,
+                u.interests
+            FROM applications a
+            INNER JOIN jobs j ON a.job_id = j.id
+            INNER JOIN users u ON a.user_id = u.id
+            WHERE a.id = ?
+            """,
+            (application_id,),
+        ).fetchone()
+    return dict(updated) if updated else None

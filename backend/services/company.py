@@ -19,6 +19,28 @@ _interview_feedback: List[Dict] = []
 _agent_queries_by_company: Dict[str, int] = {}
 _activities_by_company: Dict[str, List[Dict[str, str]]] = {}
 
+STATUS_SUBMITTED = "submitted"
+STATUS_REJECTED_PRE = "rejected_pre_interview"
+STATUS_IN_PROGRESS = "in_progress"
+STATUS_REJECTED_POST = "rejected_post_interview"
+STATUS_OFFER = "offer"
+
+ALLOWED_STATUSES = {
+    STATUS_SUBMITTED,
+    STATUS_REJECTED_PRE,
+    STATUS_IN_PROGRESS,
+    STATUS_REJECTED_POST,
+    STATUS_OFFER,
+}
+
+ALLOWED_TRANSITIONS = {
+    STATUS_SUBMITTED: {STATUS_REJECTED_PRE, STATUS_IN_PROGRESS},
+    STATUS_IN_PROGRESS: {STATUS_REJECTED_POST, STATUS_OFFER},
+    STATUS_REJECTED_PRE: set(),
+    STATUS_REJECTED_POST: set(),
+    STATUS_OFFER: set(),
+}
+
 
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -206,30 +228,83 @@ def list_company_jobs(company_id: str) -> List[Dict]:
     return jobs
 
 
+def list_company_applicants(company_id: str, job_id: str | None = None) -> List[Dict]:
+    if not database.get_company_by_id(company_id):
+        raise HTTPException(status_code=404, detail="Company not found")
+    applicants = database.get_company_applications(company_id, job_id=job_id)
+    for applicant in applicants:
+        interests_raw = applicant.get("interests") or "[]"
+        try:
+            applicant["skills"] = json.loads(interests_raw) if isinstance(interests_raw, str) else []
+            if not isinstance(applicant["skills"], list):
+                applicant["skills"] = []
+        except Exception:
+            applicant["skills"] = []
+    return applicants
+
+
+def update_application_status(
+    company_id: str,
+    application_id: str,
+    status: str,
+    technical_score: int | None,
+) -> Dict:
+    if status not in ALLOWED_STATUSES:
+        raise HTTPException(status_code=400, detail="Invalid application status")
+
+    applicants = database.get_company_applications(company_id)
+    current = next((a for a in applicants if a.get("application_id") == application_id), None)
+    if not current:
+        raise HTTPException(status_code=404, detail="Application not found for company")
+    previous_status = current.get("status") or STATUS_SUBMITTED
+
+    if previous_status not in ALLOWED_TRANSITIONS or status not in ALLOWED_TRANSITIONS[previous_status]:
+        raise HTTPException(status_code=400, detail=f"Invalid status transition: {previous_status} -> {status}")
+
+    if status in {STATUS_REJECTED_POST, STATUS_OFFER}:
+        if technical_score is None:
+            raise HTTPException(status_code=400, detail="technical_score is required for this status")
+        if technical_score < 1 or technical_score > 10:
+            raise HTTPException(status_code=400, detail="technical_score must be between 1 and 10")
+    else:
+        technical_score = None
+
+    updated = database.update_company_application_status(
+        company_id=company_id,
+        application_id=application_id,
+        status=status,
+        technical_score=technical_score,
+    )
+    if not updated:
+        raise HTTPException(status_code=404, detail="Application not found for company")
+
+    _add_activity(
+        company_id,
+        "Application status updated",
+        f"Application {application_id} moved to {status}.",
+    )
+    return updated
+
+
 def get_company_dashboard(company_id: str) -> Dict:
     if not database.get_company_by_id(company_id):
         raise HTTPException(status_code=404, detail="Company not found")
 
     jobs = list_company_jobs(company_id)
-    total_interviewed = sum(len(_interview_lists.get(job["id"], [])) for job in jobs)
-    total_feedback = sum(
-        1
-        for entry in _interview_feedback
-        if (database.get_job(entry["job_id"]) or {}).get("company_id") == company_id
-    )
-
-    interview_rate = 0.0
-    if total_interviewed > 0:
-        interview_rate = round((total_feedback / total_interviewed) * 100, 1)
+    applications = database.get_company_applications(company_id)
+    counts = database.get_company_application_stats(company_id)
+    total_applicants = len(applications)
+    interview_rate = round((counts["in_progress"] / total_applicants) * 100, 1) if total_applicants else 0.0
 
     activities = list(reversed(_activities_by_company.get(company_id, [])))[:10]
     return {
         "company_id": company_id,
         "stats": {
             "active_postings": len(jobs),
-            "total_applicants": total_interviewed,
+            "total_applicants": total_applicants,
             "ai_agent_queries": _agent_queries_by_company.get(company_id, 0),
             "interview_rate_percent": interview_rate,
         },
+        "workflow": counts,
         "recent_activity": activities,
     }

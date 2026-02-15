@@ -7,6 +7,7 @@ from schemas.company import (
     SubmitIntervieweeListRequest,
     SubmitIntervieweeFeedbackRequest,
     UpdateCompanyProfileRequest,
+    UpdateApplicationStatusRequest,
 )
 from services import company as company_service
 
@@ -78,3 +79,20 @@ def get_company_dashboard(company_id: str):
 def get_company_job_postings(company_id: str):
     jobs = company_service.list_company_jobs(company_id)
     return {"company_id": company_id, "jobs": jobs}
+
+
+@router.get("/get-company-applicants")
+def get_company_applicants(company_id: str, job_id: str | None = None):
+    applicants = company_service.list_company_applicants(company_id, job_id=job_id)
+    return {"company_id": company_id, "job_id": job_id, "applicants": applicants}
+
+
+@router.post("/update-application-status")
+def update_application_status(payload: UpdateApplicationStatusRequest):
+    updated = company_service.update_application_status(
+        company_id=payload.company_id,
+        application_id=payload.application_id,
+        status=payload.status,
+        technical_score=payload.technical_score,
+    )
+    return {"status": "ok", "application": updated}

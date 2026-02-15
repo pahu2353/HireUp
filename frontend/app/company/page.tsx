@@ -24,9 +24,13 @@ export default function CompanyDashboard() {
       setError("Log in as a company account to view dashboard data.")
       return
     }
-    getCompanyDashboard(auth.id)
-      .then((data) => setDashboard(data))
-      .catch((e) => setError(e instanceof Error ? e.message : "Failed to load dashboard"))
+    const load = () =>
+      getCompanyDashboard(auth.id)
+        .then((data) => setDashboard(data))
+        .catch((e) => setError(e instanceof Error ? e.message : "Failed to load dashboard"))
+    load()
+    const id = window.setInterval(load, 5000)
+    return () => window.clearInterval(id)
   }, [])
 
   return (
@@ -66,6 +70,24 @@ export default function CompanyDashboard() {
             </Card>
           )
         })}
+      </div>
+
+      <div className="mt-6">
+        <Card>
+          <CardHeader>
+            <CardTitle>Application Workflow</CardTitle>
+            <CardDescription>Live counts by stage.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-5">
+              <div className="rounded border p-3 text-sm">Submitted: {dashboard?.workflow.submitted ?? 0}</div>
+              <div className="rounded border p-3 text-sm">Rejected (Pre): {dashboard?.workflow.rejected_pre_interview ?? 0}</div>
+              <div className="rounded border p-3 text-sm">In Progress: {dashboard?.workflow.in_progress ?? 0}</div>
+              <div className="rounded border p-3 text-sm">Rejected (Post): {dashboard?.workflow.rejected_post_interview ?? 0}</div>
+              <div className="rounded border p-3 text-sm">Offer: {dashboard?.workflow.offer ?? 0}</div>
+            </div>
+          </CardContent>
+        </Card>
       </div>
 
       <div className="mt-8">

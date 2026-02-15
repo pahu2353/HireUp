@@ -37,3 +37,10 @@ class UpdateCompanyProfileRequest(BaseModel):
     company_size: str = ""
     stage: str = ""
     culture_benefits: str = ""
+
+
+class UpdateApplicationStatusRequest(BaseModel):
+    company_id: str
+    application_id: str
+    status: str
+    technical_score: int | None = None
