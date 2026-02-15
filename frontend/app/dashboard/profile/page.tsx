@@ -20,6 +20,9 @@ const emptyProfile: UserProfile = {
   objective: "",
   resume: "",
   skills: [],
+  grad_date: "",
+  linkedin_url: "",
+  github_url: "",
 }
 
 function sanitizeProfile(data: UserProfile): UserProfile {
@@ -31,6 +34,9 @@ function sanitizeProfile(data: UserProfile): UserProfile {
     objective: data.objective ?? "",
     resume: data.resume ?? "",
     skills: Array.isArray(data.skills) ? data.skills.map((s) => String(s)) : [],
+    grad_date: data.grad_date ?? "",
+    linkedin_url: data.linkedin_url ?? "",
+    github_url: data.github_url ?? "",
   }
 }
 
@@ -180,6 +186,35 @@ export default function ApplicantProfilePage() {
                 id="p-objective"
                 value={profile.objective ?? ""}
                 onChange={(e) => setProfile((p) => ({ ...p, objective: e.target.value }))}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="p-grad-date">Graduation Date</Label>
+              <Input
+                id="p-grad-date"
+                type="month"
+                value={profile.grad_date ?? ""}
+                onChange={(e) => setProfile((p) => ({ ...p, grad_date: e.target.value }))}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="p-linkedin">LinkedIn URL</Label>
+              <Input
+                id="p-linkedin"
+                type="url"
+                placeholder="https://www.linkedin.com/in/your-profile"
+                value={profile.linkedin_url ?? ""}
+                onChange={(e) => setProfile((p) => ({ ...p, linkedin_url: e.target.value }))}
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="p-github">GitHub URL</Label>
+              <Input
+                id="p-github"
+                type="url"
+                placeholder="https://github.com/your-username"
+                value={profile.github_url ?? ""}
+                onChange={(e) => setProfile((p) => ({ ...p, github_url: e.target.value }))}
               />
             </div>
           </CardContent>

@@ -8,6 +8,9 @@ export interface UserProfile {
   objective: string
   resume: string
   skills: string[]
+  grad_date: string
+  linkedin_url: string
+  github_url: string
 }
 
 async function putJson<T>(path: string, payload: unknown): Promise<T> {

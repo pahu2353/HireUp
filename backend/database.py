@@ -45,6 +45,9 @@ def init_db() -> None:
                 resume_text TEXT,
                 interests TEXT,
                 career_objective TEXT,
+                grad_date TEXT,
+                linkedin_url TEXT,
+                github_url TEXT,
                 account_type TEXT DEFAULT 'user',
                 created_at TEXT DEFAULT (datetime('now'))
             );
@@ -141,6 +144,9 @@ def init_db() -> None:
             "ALTER TABLE users ADD COLUMN resume_text TEXT",
             "ALTER TABLE users ADD COLUMN objective TEXT",
             "ALTER TABLE users ADD COLUMN career_objective TEXT",
+            "ALTER TABLE users ADD COLUMN grad_date TEXT",
+            "ALTER TABLE users ADD COLUMN linkedin_url TEXT",
+            "ALTER TABLE users ADD COLUMN github_url TEXT",
         ):
             try:
                 conn.execute(stmt)
@@ -197,6 +203,9 @@ def create_user(
     resume_text: str = "",
     interests: str = "[]",
     career_objective: str = "",
+    grad_date: str = "",
+    linkedin_url: str = "",
+    github_url: str = "",
     user_id: str | None = None,
 ) -> Optional[Dict[str, Any]]:
     if get_user_by_email(email):
@@ -207,8 +216,9 @@ def create_user(
         conn.execute(
             """
             INSERT INTO users (
-                id, email, password_hash, name, objective, resume, resume_pdf, resume_text, interests, career_objective
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                id, email, password_hash, name, objective, resume, resume_pdf, resume_text, interests, career_objective,
+                grad_date, linkedin_url, github_url
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             (
                 user_id,
@@ -221,6 +231,9 @@ def create_user(
                 resume_text,
                 interests,
                 career_objective,
+                grad_date,
+                linkedin_url,
+                github_url,
             ),
         )
 
@@ -234,6 +247,9 @@ def create_user(
         "resume_text": resume_text,
         "interests": interests,
         "career_objective": career_objective,
+        "grad_date": grad_date,
+        "linkedin_url": linkedin_url,
+        "github_url": github_url,
         "account_type": "user",
     }
 
@@ -242,7 +258,8 @@ def get_user_by_email(email: str) -> Optional[Dict[str, Any]]:
     with get_conn() as conn:
         row = conn.execute(
             """
-            SELECT id, email, password_hash, name, objective, resume, resume_pdf, resume_text, interests, career_objective
+            SELECT id, email, password_hash, name, objective, resume, resume_pdf, resume_text, interests, career_objective,
+                   grad_date, linkedin_url, github_url
             FROM users WHERE email = ?
             """,
             (email,),
@@ -261,6 +278,9 @@ def get_user_by_email(email: str) -> Optional[Dict[str, Any]]:
         "resume_text": row["resume_text"] or "",
         "interests": row["interests"] or "[]",
         "career_objective": row["career_objective"] or "",
+        "grad_date": row["grad_date"] or "",
+        "linkedin_url": row["linkedin_url"] or "",
+        "github_url": row["github_url"] or "",
         "account_type": "user",
     }
 
@@ -276,7 +296,8 @@ def get_user_by_id(user_id: str) -> Optional[Dict[str, Any]]:
     with get_conn() as conn:
         row = conn.execute(
             """
-            SELECT id, email, name, objective, resume, resume_pdf, resume_text, interests, career_objective
+            SELECT id, email, name, objective, resume, resume_pdf, resume_text, interests, career_objective,
+                   grad_date, linkedin_url, github_url
             FROM users WHERE id = ?
             """,
             (user_id,),
@@ -295,6 +316,9 @@ def update_user(
     interests: str | None = None,
     objective: str | None = None,
     career_objective: str | None = None,
+    grad_date: str | None = None,
+    linkedin_url: str | None = None,
+    github_url: str | None = None,
 ) -> bool:
     if not get_user_by_id(user_id):
         return False
@@ -322,6 +346,15 @@ def update_user(
     if career_objective is not None:
         updates.append("career_objective = ?")
         params.append(career_objective)
+    if grad_date is not None:
+        updates.append("grad_date = ?")
+        params.append(grad_date)
+    if linkedin_url is not None:
+        updates.append("linkedin_url = ?")
+        params.append(linkedin_url)
+    if github_url is not None:
+        updates.append("github_url = ?")
+        params.append(github_url)
 
     if not updates:
         return True
@@ -338,6 +371,9 @@ def update_user_profile(
     objective: str,
     resume: str,
     interests: str,
+    grad_date: str = "",
+    linkedin_url: str = "",
+    github_url: str = "",
 ) -> Optional[Dict[str, Any]]:
     with get_conn() as conn:
         row = conn.execute("SELECT id FROM users WHERE id = ?", (user_id,)).fetchone()
@@ -347,10 +383,10 @@ def update_user_profile(
         conn.execute(
             """
             UPDATE users
-            SET name = ?, objective = ?, career_objective = ?, interests = ?
+            SET name = ?, objective = ?, career_objective = ?, interests = ?, grad_date = ?, linkedin_url = ?, github_url = ?
             WHERE id = ?
             """,
-            (name, objective, objective, interests, user_id),
+            (name, objective, objective, interests, grad_date, linkedin_url, github_url, user_id),
         )
     return get_user_by_id(user_id)
 
@@ -691,7 +727,10 @@ def get_company_applications(company_id: str, job_id: str | None = None) -> List
             u.name AS user_name,
             u.email AS user_email,
             u.resume_text,
-            u.interests
+            u.interests,
+            u.grad_date,
+            u.linkedin_url,
+            u.github_url
         FROM applications a
         INNER JOIN jobs j ON a.job_id = j.id
         INNER JOIN users u ON a.user_id = u.id
@@ -775,7 +814,10 @@ def update_company_application_status(
                 u.name AS user_name,
                 u.email AS user_email,
                 u.resume_text,
-                u.interests
+                u.interests,
+                u.grad_date,
+                u.linkedin_url,
+                u.github_url
             FROM applications a
             INNER JOIN jobs j ON a.job_id = j.id
             INNER JOIN users u ON a.user_id = u.id

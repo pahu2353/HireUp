@@ -9,9 +9,14 @@ class SignupRequest(BaseModel):
     email: str
     password: str
     name: str = ""
+    objective: str = ""
+    career_objective: Optional[str] = None
     resume: Optional[str] = None  # fallback pasted text when no PDF
     resume_pdf_base64: Optional[str] = None  # base64-encoded PDF file
     interests: List[str] = Field(default_factory=list)
+    grad_date: Optional[str] = None
+    linkedin_url: Optional[str] = None
+    github_url: Optional[str] = None
     company_name: str = ""
     website: str = ""
     description: str = ""

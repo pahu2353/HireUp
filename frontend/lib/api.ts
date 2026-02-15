@@ -48,9 +48,14 @@ export async function signupUser(payload: {
   email: string
   password: string
   name?: string
+  objective?: string
+  careerObjective?: string
   resume?: string
   resumePdfBase64?: string
   interests?: string[]
+  gradDate?: string
+  linkedinUrl?: string
+  githubUrl?: string
 }) {
   const res = await fetch(getApiUrl("/signup"), {
     method: "POST",
@@ -60,9 +65,14 @@ export async function signupUser(payload: {
       email: payload.email,
       password: payload.password,
       name: payload.name ?? "",
+      objective: payload.objective ?? "",
+      career_objective: payload.careerObjective ?? payload.objective ?? "",
       resume: payload.resume ?? "",
       resume_pdf_base64: payload.resumePdfBase64 ?? undefined,
       interests: payload.interests ?? [],
+      grad_date: payload.gradDate ?? "",
+      linkedin_url: payload.linkedinUrl ?? "",
+      github_url: payload.githubUrl ?? "",
     }),
   })
   const data = await res.json().catch(() => ({}))
@@ -115,6 +125,9 @@ export async function updateProfile(userId: string, payload: {
   resumePdfBase64?: string
   interests?: string[]
   careerObjective?: string
+  gradDate?: string
+  linkedinUrl?: string
+  githubUrl?: string
 }) {
   const res = await fetch(getApiUrl(`/profile/${userId}`), {
     method: "PUT",
@@ -125,6 +138,9 @@ export async function updateProfile(userId: string, payload: {
       resume_pdf_base64: payload.resumePdfBase64,
       interests: payload.interests,
       career_objective: payload.careerObjective,
+      grad_date: payload.gradDate,
+      linkedin_url: payload.linkedinUrl,
+      github_url: payload.githubUrl,
     }),
   })
   const data = await res.json().catch(() => ({}))
@@ -187,4 +203,3 @@ export async function getUserApplications(userId: string) {
   if (!res.ok) throw new Error(data.detail ?? "Failed to fetch applications")
   return data.applications
 }
-

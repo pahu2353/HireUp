@@ -89,6 +89,9 @@ def _user_payload_for_initializer(user: Dict) -> Dict:
         "objective": user.get("objective"),
         "career_objective": user.get("career_objective"),
         "interests": user.get("interests"),
+        "grad_date": user.get("grad_date"),
+        "linkedin_url": user.get("linkedin_url"),
+        "github_url": user.get("github_url"),
     }
 
 
@@ -143,6 +146,9 @@ def create_user(user_data: Dict) -> Dict:
     name = user_data.get("name", "")
     objective = user_data.get("objective", "")
     career_objective = user_data.get("career_objective", objective)
+    grad_date = (user_data.get("grad_date") or "").strip()
+    linkedin_url = (user_data.get("linkedin_url") or "").strip()
+    github_url = (user_data.get("github_url") or "").strip()
     resume = user_data.get("resume", "")
     resume_pdf_base64 = user_data.get("resume_pdf_base64")
     interests = user_data.get("interests", [])
@@ -174,6 +180,9 @@ def create_user(user_data: Dict) -> Dict:
         resume_text=resume_text,
         interests=interests_str,
         career_objective=career_objective,
+        grad_date=grad_date,
+        linkedin_url=linkedin_url,
+        github_url=github_url,
     )
     if user is None:
         raise HTTPException(status_code=409, detail="An account with this email already exists")
@@ -327,6 +336,9 @@ def get_user_profile(user_id: str) -> Dict:
         "skills": [str(s) for s in skills],
         "interests": json.dumps(skills),
         "has_resume_pdf": has_resume_pdf,
+        "grad_date": user.get("grad_date", "") or "",
+        "linkedin_url": user.get("linkedin_url", "") or "",
+        "github_url": user.get("github_url", "") or "",
     }
 
 
@@ -356,6 +368,9 @@ def update_user_profile(user_id: str, profile_data: Dict) -> Dict:
         interests=interests_str,
         objective=profile_data.get("objective"),
         career_objective=profile_data.get("career_objective"),
+        grad_date=profile_data.get("grad_date"),
+        linkedin_url=profile_data.get("linkedin_url"),
+        github_url=profile_data.get("github_url"),
     )
     if not ok:
         raise HTTPException(status_code=404, detail="User not found")
@@ -381,6 +396,9 @@ def update_user_profile_v2(profile_data: Dict) -> Dict:
         objective=profile_data.get("objective", "") or "",
         resume=profile_data.get("resume", "") or "",
         interests=json.dumps(skills),
+        grad_date=profile_data.get("grad_date", "") or "",
+        linkedin_url=profile_data.get("linkedin_url", "") or "",
+        github_url=profile_data.get("github_url", "") or "",
     )
     if not updated:
         raise HTTPException(status_code=404, detail="User not found")

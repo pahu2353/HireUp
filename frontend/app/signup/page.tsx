@@ -39,6 +39,9 @@ export default function SignupPage() {
   const [aResume, setAResume] = useState("")
   const [aResumePdf, setAResumePdf] = useState<File | null>(null)
   const [aObjective, setAObjective] = useState("")
+  const [aGradDate, setAGradDate] = useState("")
+  const [aLinkedinUrl, setALinkedinUrl] = useState("")
+  const [aGithubUrl, setAGithubUrl] = useState("")
   const [cName, setCName] = useState("")
   const [cEmail, setCEmail] = useState("")
   const [cPassword, setCPassword] = useState("")
@@ -139,9 +142,14 @@ export default function SignupPage() {
                       email: aEmail,
                       password: aPassword,
                       name: [aFirstName, aLastName].filter(Boolean).join(" ") || "Applicant",
+                      objective: aObjective || undefined,
+                      careerObjective: aObjective || undefined,
                       resume: aResume || undefined,
                       resumePdfBase64,
                       interests: skills,
+                      gradDate: aGradDate || undefined,
+                      linkedinUrl: aLinkedinUrl || undefined,
+                      githubUrl: aGithubUrl || undefined,
                     })
                     router.push("/login?registered=1")
                   } catch (err) {
@@ -268,6 +276,35 @@ export default function SignupPage() {
                     placeholder="e.g., Full-stack SWE at an early-stage startup"
                     value={aObjective}
                     onChange={(e) => setAObjective(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="grad-date">Graduation Date (Optional)</Label>
+                  <Input
+                    id="grad-date"
+                    type="month"
+                    value={aGradDate}
+                    onChange={(e) => setAGradDate(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="linkedin-url">LinkedIn URL (Optional)</Label>
+                  <Input
+                    id="linkedin-url"
+                    type="url"
+                    placeholder="https://www.linkedin.com/in/your-profile"
+                    value={aLinkedinUrl}
+                    onChange={(e) => setALinkedinUrl(e.target.value)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <Label htmlFor="github-url">GitHub URL (Optional)</Label>
+                  <Input
+                    id="github-url"
+                    type="url"
+                    placeholder="https://github.com/your-username"
+                    value={aGithubUrl}
+                    onChange={(e) => setAGithubUrl(e.target.value)}
                   />
                 </div>
                 {error && <p className="text-sm text-destructive">{error}</p>}

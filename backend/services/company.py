@@ -145,6 +145,9 @@ def _user_payload_for_initializer(user: Dict[str, Any] | None, app: Dict[str, An
         "objective": user.get("objective"),
         "career_objective": user.get("career_objective"),
         "interests": user.get("interests") or app.get("interests"),
+        "grad_date": user.get("grad_date") or app.get("grad_date"),
+        "linkedin_url": user.get("linkedin_url") or app.get("linkedin_url"),
+        "github_url": user.get("github_url") or app.get("github_url"),
     }
 
 
@@ -433,6 +436,9 @@ def _openai_rank_and_analyze_candidates(job: Dict, prompt: str, candidates: List
             {
                 "user_id": c.get("user_id", ""),
                 "resume_text": (c.get("resume_text") or "")[:10000],
+                "grad_date": c.get("grad_date", ""),
+                "linkedin_url": c.get("linkedin_url", ""),
+                "github_url": c.get("github_url", ""),
             }
         )
 
@@ -444,6 +450,8 @@ def _openai_rank_and_analyze_candidates(job: Dict, prompt: str, candidates: List
         "A candidate's score should be the same whether they are scored alone or with 100 others. "
         "Return strict JSON only with shape: "
         '{"ranked":[{"user_id":"...","score":0,"reasoning":"...","skills":[{"name":"...","score":0}],"skill_summary":"..."}]}. '
+        "If profile metadata (grad_date, linkedin_url, github_url) appears inconsistent with resume_text, "
+        "explicitly flag it in reasoning using prefix 'DISCREPANCY FLAG:'. "
         "For skills: analyze ONLY the job-required skills. Score each 0-100 based on resume evidence. "
         "Provide a brief skill_summary (1-2 sentences) describing overall technical strengths."
     )
@@ -554,6 +562,9 @@ def _openai_hybrid_rank_candidates(
             {
                 "user_id": c.get("user_id", ""),
                 "resume_text": (c.get("resume_text") or "")[:10000],
+                "grad_date": c.get("grad_date", ""),
+                "linkedin_url": c.get("linkedin_url", ""),
+                "github_url": c.get("github_url", ""),
             }
         )
 
@@ -567,6 +578,8 @@ def _openai_hybrid_rank_candidates(
         "Return strict JSON only with shape: "
         '{"ranked":[{"user_id":"...","score":0,"reasoning":"...","skills":[{"name":"...","score":0}],"skill_summary":"..."}]}. '
         "In reasoning, explain how well they match both the job requirements and the additional criteria. "
+        "If profile metadata (grad_date, linkedin_url, github_url) appears inconsistent with resume_text, "
+        "explicitly flag it in reasoning using prefix 'DISCREPANCY FLAG:'. "
         "For skills: analyze ONLY the job-required skills. Score each 0-100 based on resume evidence. "
         "Provide a brief skill_summary (1-2 sentences) describing overall technical strengths."
     )
@@ -674,6 +687,9 @@ def _openai_rank_candidates(job: Dict, prompt: str, candidates: List[Dict]) -> L
             {
                 "user_id": c.get("user_id", ""),
                 "resume_text": (c.get("resume_text") or "")[:10000],
+                "grad_date": c.get("grad_date", ""),
+                "linkedin_url": c.get("linkedin_url", ""),
+                "github_url": c.get("github_url", ""),
             }
         )
 
@@ -685,6 +701,8 @@ def _openai_rank_candidates(job: Dict, prompt: str, candidates: List[Dict]) -> L
         "A candidate's score should be the same whether they are scored alone or with 100 others. "
         "Return strict JSON only with shape: "
         '{"ranked":[{"user_id":"...","score":0,"reasoning":"..."}]}. '
+        "If profile metadata (grad_date, linkedin_url, github_url) appears inconsistent with resume_text, "
+        "explicitly flag it in reasoning using prefix 'DISCREPANCY FLAG:'. "
         "Scoring criteria: technical skill match, relevant experience, demonstrated expertise, and alignment with job requirements."
     )
     user_msg = {
@@ -916,6 +934,9 @@ def get_top_candidates(job_id: str, prompt: str, limit: int | None = None) -> Di
             "name": a.get("user_name", ""),
             "skills": a.get("skills", []),
             "resume_text": a.get("resume_text", ""),
+            "grad_date": a.get("grad_date", ""),
+            "linkedin_url": a.get("linkedin_url", ""),
+            "github_url": a.get("github_url", ""),
         }
         for a in applicants
         if a.get("user_id")
@@ -1108,6 +1129,9 @@ def _score_single_batch(
                 "name": app.get("user_name", ""),
                 "skills": app.get("skills", []),
                 "resume_text": app.get("resume_text", ""),
+                "grad_date": app.get("grad_date", ""),
+                "linkedin_url": app.get("linkedin_url", ""),
+                "github_url": app.get("github_url", ""),
             }
         )
     if not candidate_pool:
@@ -1308,6 +1332,9 @@ def generate_custom_report(
                 "name": app.get("user_name", ""),
                 "skills": app.get("skills", []),
                 "resume_text": app.get("resume_text", ""),
+                "grad_date": app.get("grad_date", ""),
+                "linkedin_url": app.get("linkedin_url", ""),
+                "github_url": app.get("github_url", ""),
             }
         )
     

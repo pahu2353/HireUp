@@ -503,6 +503,33 @@ function CandidatesPage() {
                     <CardDescription>
                       {candidate.user_email} • {candidate.job_title}
                     </CardDescription>
+                    {(candidate.grad_date || candidate.linkedin_url || candidate.github_url) && (
+                      <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                        {candidate.grad_date ? <span>Grad: {candidate.grad_date}</span> : null}
+                        {candidate.linkedin_url ? (
+                          <a
+                            href={candidate.linkedin_url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-primary hover:underline"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            LinkedIn
+                          </a>
+                        ) : null}
+                        {candidate.github_url ? (
+                          <a
+                            href={candidate.github_url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-primary hover:underline"
+                            onClick={(e) => e.stopPropagation()}
+                          >
+                            GitHub
+                          </a>
+                        ) : null}
+                      </div>
+                    )}
                   </div>
                   <div className="flex items-center gap-3">
                     {(() => {
@@ -632,6 +659,34 @@ function CandidatesPage() {
           </DialogHeader>
           {detailsModalCandidate ? (
             <>
+              <div className="rounded-lg border border-border/60 bg-muted/20 p-3">
+                <p className="text-sm text-foreground">
+                  {detailsModalCandidate.user_name || "Candidate"} • {detailsModalCandidate.user_email}
+                </p>
+                <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+                  {detailsModalCandidate.grad_date ? <span>Graduation date: {detailsModalCandidate.grad_date}</span> : null}
+                  {detailsModalCandidate.linkedin_url ? (
+                    <a
+                      href={detailsModalCandidate.linkedin_url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-primary hover:underline"
+                    >
+                      LinkedIn
+                    </a>
+                  ) : null}
+                  {detailsModalCandidate.github_url ? (
+                    <a
+                      href={detailsModalCandidate.github_url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-primary hover:underline"
+                    >
+                      GitHub
+                    </a>
+                  ) : null}
+                </div>
+              </div>
               {analysisLoadingFor === detailsModalCandidate.application_id ? (
                 <p className="text-sm text-muted-foreground">Analyzing candidate skills...</p>
               ) : analysisErrorFor[detailsModalCandidate.application_id] ? (

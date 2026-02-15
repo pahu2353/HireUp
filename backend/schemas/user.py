@@ -15,6 +15,9 @@ class UpdateProfileRequest(BaseModel):
     resume_pdf_base64: Optional[str] = None
     interests: Optional[List[str]] = None
     career_objective: Optional[str] = None
+    grad_date: Optional[str] = None
+    linkedin_url: Optional[str] = None
+    github_url: Optional[str] = None
 
 
 class UpdateUserProfileRequest(BaseModel):
@@ -24,3 +27,6 @@ class UpdateUserProfileRequest(BaseModel):
     objective: str = ""
     resume: str = ""
     skills: List[str] = []
+    grad_date: str = ""
+    linkedin_url: str = ""
+    github_url: str = ""

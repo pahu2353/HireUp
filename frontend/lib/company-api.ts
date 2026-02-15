@@ -87,6 +87,9 @@ export interface CompanyApplicant {
   user_name: string
   user_email: string
   resume_text: string
+  grad_date: string
+  linkedin_url: string
+  github_url: string
   skills: string[]
   technical_score: number | null
   fit_score: number | null

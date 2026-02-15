@@ -18,7 +18,8 @@ ENV/
 # Database
 backend/hireup.db
 *.db
-# *.sqlite
+*.sqlite
+two-tower/two_tower_vecdb.sqlite
 *.sqlite3
 
 # Resumes
