@@ -1,6 +1,7 @@
 "use client"
 
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useState, Suspense } from "react"
+import { useSearchParams } from "next/navigation"
 import { DashboardShell } from "@/components/dashboard/dashboard-shell"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -26,6 +27,9 @@ import {
   getCompanyJobs,
   scoreApplicants,
   updateApplicationStatus,
+  getCustomReports,
+  CustomReport,
+  getReportScores,
 } from "@/lib/company-api"
 import {
   PolarAngleAxis,
@@ -43,7 +47,8 @@ const STATUS_LABEL: Record<string, string> = {
   offer: "Offer",
 }
 
-export default function CandidatesPage() {
+function CandidatesPage() {
+  const searchParams = useSearchParams()
   const [companyId, setCompanyId] = useState("")
   const [jobId, setJobId] = useState("")
   const [jobs, setJobs] = useState<CompanyJob[]>([])
@@ -55,7 +60,9 @@ export default function CandidatesPage() {
   const [scoringProgress, setScoringProgress] = useState(0)
   const [isUpdating, setIsUpdating] = useState<string | null>(null)
   const [sortBy, setSortBy] = useState<"fit_desc" | "date_desc" | "date_asc" | "status">("date_desc")
-  const [selectedReportId, setSelectedReportId] = useState("__job_default__")
+  const [selectedReportId, setSelectedReportId] = useState("")
+  const [customReports, setCustomReports] = useState<CustomReport[]>([])
+  const [reportScoresMap, setReportScoresMap] = useState<Record<string, Record<string, number>>>({})
   const [unscoredCount, setUnscoredCount] = useState(0)
   const [selectedCandidateId, setSelectedCandidateId] = useState<string>("")
 
@@ -85,6 +92,16 @@ export default function CandidatesPage() {
         const res = await getCompanyJobs(auth.id)
         setJobs(res.jobs)
 
+        // Load custom reports
+        const reportsRes = await getCustomReports(auth.id)
+        setCustomReports(reportsRes.reports)
+
+        // Check if URL has report parameter
+        const reportParam = searchParams?.get("report")
+        if (reportParam) {
+          setSelectedReportId(reportParam)
+        }
+
         // Auto-load all applicants (newest first by default)
         const countsRes = await getCompanyApplicants(auth.id)
         setApplicants(countsRes.applicants)
@@ -96,6 +113,25 @@ export default function CandidatesPage() {
     }
     init()
   }, [])
+
+  // Load report scores when a custom report is selected
+  useEffect(() => {
+    if (selectedReportId) {
+      const loadReportScores = async () => {
+        try {
+          const res = await getReportScores(selectedReportId)
+          const scoreMap: Record<string, number> = {}
+          res.scores.forEach((s) => {
+            scoreMap[s.application_id] = s.custom_fit_score
+          })
+          setReportScoresMap((prev) => ({ ...prev, [selectedReportId]: scoreMap }))
+        } catch (e) {
+          console.error("Failed to load report scores:", e)
+        }
+      }
+      loadReportScores()
+    }
+  }, [selectedReportId])
 
   const loadApplicants = async () => {
     if (!companyId) return
@@ -285,9 +321,34 @@ export default function CandidatesPage() {
   }
 
   const sortedApplicants = useMemo(() => {
-    const copy = [...applicants]
+    let copy = [...applicants]
+    
+    // If custom report is selected, filter to only those with report scores
+    if (selectedReportId) {
+      const scoreMap = reportScoresMap[selectedReportId]
+      if (scoreMap) {
+        copy = copy.filter((a) => scoreMap[a.application_id] !== undefined)
+        // Auto-sort by score when a report is selected, unless user explicitly chose a different sort
+        if (sortBy === "date_desc") {
+          // Default to score sorting for reports
+          copy.sort((a, b) => (scoreMap[b.application_id] ?? -1) - (scoreMap[a.application_id] ?? -1))
+          return copy
+        }
+      }
+    }
+    
     if (sortBy === "fit_desc") {
-      copy.sort((a, b) => (b.fit_score ?? -1) - (a.fit_score ?? -1))
+      // Use custom report scores if available, otherwise use regular fit_score
+      if (selectedReportId) {
+        const scoreMap = reportScoresMap[selectedReportId]
+        if (scoreMap) {
+          copy.sort((a, b) => (scoreMap[b.application_id] ?? -1) - (scoreMap[a.application_id] ?? -1))
+        } else {
+          copy.sort((a, b) => (b.fit_score ?? -1) - (a.fit_score ?? -1))
+        }
+      } else {
+        copy.sort((a, b) => (b.fit_score ?? -1) - (a.fit_score ?? -1))
+      }
       return copy
     }
     if (sortBy === "date_desc") {
@@ -300,14 +361,11 @@ export default function CandidatesPage() {
     }
     copy.sort((a, b) => (STATUS_LABEL[a.status] || a.status).localeCompare(STATUS_LABEL[b.status] || b.status))
     return copy
-  }, [applicants, sortBy])
+  }, [applicants, sortBy, selectedReportId, reportScoresMap])
 
   const previousReports = useMemo(
-    () => [
-      { id: "__job_default__", name: "Job posting baseline (default)" },
-      { id: "__last__", name: "Most recent saved report" },
-    ],
-    [],
+    () => customReports.map((r) => ({ id: r.id, name: r.report_name })),
+    [customReports],
   )
 
   return (
@@ -366,16 +424,22 @@ export default function CandidatesPage() {
           <div className="mt-4">
             <div className="space-y-2">
               <Label htmlFor="report-select">Previous reports</Label>
-              <Select value={selectedReportId} onValueChange={setSelectedReportId}>
+              <Select value={selectedReportId || undefined} onValueChange={setSelectedReportId}>
                 <SelectTrigger id="report-select">
-                  <SelectValue placeholder="Select a report" />
+                  <SelectValue placeholder="Select a custom report (optional)" />
                 </SelectTrigger>
                 <SelectContent>
-                  {previousReports.map((report) => (
-                    <SelectItem key={report.id} value={report.id}>
-                      {report.name}
+                  {previousReports.length === 0 ? (
+                    <SelectItem value="__empty__" disabled>
+                      No custom reports yet
                     </SelectItem>
-                  ))}
+                  ) : (
+                    previousReports.map((report) => (
+                      <SelectItem key={report.id} value={report.id}>
+                        {report.name}
+                      </SelectItem>
+                    ))
+                  )}
                 </SelectContent>
               </Select>
             </div>
@@ -441,20 +505,18 @@ export default function CandidatesPage() {
                     </CardDescription>
                   </div>
                   <div className="flex items-center gap-3">
-                    {candidate.fit_score !== null && (
-                      <div className="rounded-full bg-primary/10 px-2.5 py-1">
-                        <span className="text-xs font-semibold text-primary">{candidate.fit_score}</span>
-                      </div>
-                    )}
-                    <button
-                      className="text-xs font-medium text-primary underline-offset-2 hover:underline"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        openDetailsModal(candidate)
-                      }}
-                    >
-                      More details
-                    </button>
+                    {(() => {
+                      // Show custom report score if selected, otherwise regular fit_score
+                      const displayScore = selectedReportId
+                        ? reportScoresMap[selectedReportId]?.[candidate.application_id]
+                        : candidate.fit_score
+                      
+                      return displayScore !== null && displayScore !== undefined ? (
+                        <div className="rounded-full bg-primary/10 px-3.5 py-1.5">
+                          <span className="text-base font-bold text-primary">{displayScore}</span>
+                        </div>
+                      ) : null
+                    })()}
                     <Badge variant="secondary">{STATUS_LABEL[candidate.status] || candidate.status}</Badge>
                   </div>
                 </div>
@@ -565,11 +627,7 @@ export default function CandidatesPage() {
           <DialogHeader>
             <DialogTitle>{detailsModalCandidate?.user_name || "Candidate"} Skill Snapshot</DialogTitle>
             <DialogDescription>
-              {detailsModalCandidate
-                ? (detailsModalCandidate.job_id && jobId
-                    ? "Mode 2: Skills scored against selected job requirements"
-                    : "Mode 1: Skills scored against this candidate's applied job requirements")
-                : ""}
+              Skills scored against job requirements
             </DialogDescription>
           </DialogHeader>
           {detailsModalCandidate ? (
@@ -694,5 +752,13 @@ export default function CandidatesPage() {
         </DialogContent>
       </Dialog>
     </DashboardShell>
+  )
+}
+
+export default function CandidatesPageWrapper() {
+  return (
+    <Suspense fallback={<div className="p-8">Loading...</div>}>
+      <CandidatesPage />
+    </Suspense>
   )
 }

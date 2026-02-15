@@ -42,10 +42,10 @@ export function DashboardShell({
   const links = role === "applicant" ? applicantLinks : companyLinks
 
   return (
-    <div className="flex min-h-screen">
-      <aside className="fixed left-0 top-0 z-40 hidden h-screen w-64 flex-col border-r border-border bg-card md:flex">
-        <div className="flex items-center gap-2 px-6 py-5 border-b border-border">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-primary/70">
+    <div className="flex min-h-screen px-4 py-4 md:px-6 md:py-6">
+      <aside className="app-shell fixed left-6 top-6 z-40 hidden h-[calc(100vh-48px)] w-64 flex-col bg-sidebar/85 md:flex">
+        <div className="flex items-center gap-2 border-b border-sidebar-border/80 px-6 py-5">
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-accent">
             <span className="text-sm font-bold text-primary-foreground">H</span>
           </div>
           <span className="text-lg font-bold text-foreground">HireUp</span>
@@ -65,8 +65,8 @@ export function DashboardShell({
                 className={cn(
                   "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
                   isActive
-                    ? "bg-primary/10 text-primary"
-                    : "text-muted-foreground hover:bg-secondary hover:text-foreground"
+                    ? "bg-sidebar-primary/15 text-sidebar-primary"
+                    : "text-muted-foreground hover:bg-sidebar-accent hover:text-foreground"
                 )}
               >
                 <link.icon className="h-4 w-4" />
@@ -76,7 +76,7 @@ export function DashboardShell({
           })}
         </nav>
 
-        <div className="border-t border-border px-4 py-4 flex items-center justify-between">
+        <div className="flex items-center justify-between border-t border-sidebar-border/80 px-4 py-4">
           <Button
             variant="ghost"
             className="flex-1 justify-start gap-3 text-muted-foreground"
@@ -91,10 +91,10 @@ export function DashboardShell({
         </div>
       </aside>
 
-      <div className="flex-1 md:ml-64">
-        <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-border bg-background/80 px-6 backdrop-blur-xl md:hidden">
+      <div className="flex-1 md:ml-[280px]">
+        <header className="app-shell sticky top-4 z-30 mb-4 flex h-14 items-center justify-between px-4 md:hidden">
           <Link href="/" className="flex items-center gap-2">
-            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-primary/70">
+            <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-accent">
               <span className="text-xs font-bold text-primary-foreground">
                 H
               </span>
@@ -104,13 +104,13 @@ export function DashboardShell({
           <ThemeToggle />
         </header>
 
-        <main className="p-6 lg:p-8">{children}</main>
+        <main className="app-shell min-h-[calc(100vh-48px)] p-5 md:p-7 lg:p-8">{children}</main>
       </div>
 
       {role === "company" ? (
         <Link
           href="/company/agent?new=1"
-          className="fixed bottom-6 right-6 z-50 flex h-14 w-14 items-center justify-center rounded-full border border-primary/30 bg-primary text-primary-foreground shadow-lg transition-all hover:scale-105 hover:bg-primary/90"
+          className="fixed bottom-8 right-8 z-50 flex h-14 w-14 items-center justify-center rounded-full border border-primary/40 bg-primary text-primary-foreground shadow-[0_14px_30px_-15px_hsl(var(--primary))] transition-all hover:scale-105 hover:bg-primary/90"
           aria-label="New chat"
           title="New chat"
         >

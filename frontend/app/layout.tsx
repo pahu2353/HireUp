@@ -1,15 +1,8 @@
 import type { Metadata, Viewport } from 'next'
-import { Quicksand, JetBrains_Mono } from 'next/font/google'
 import { ThemeProvider } from '@/components/theme-provider'
 import { GridBackground } from '@/components/grid-background'
 
 import './globals.css'
-
-const quicksand = Quicksand({ subsets: ['latin'], variable: '--font-quicksand' })
-const jetbrainsMono = JetBrains_Mono({
-  subsets: ['latin'],
-  variable: '--font-jetbrains-mono',
-})
 
 export const metadata: Metadata = {
   title: 'HireUp - Intelligent Job Matching',
@@ -27,8 +20,8 @@ export default function RootLayout({
   children: React.ReactNode
 }>) {
   return (
-    <html lang="en" className={`${quicksand.variable} ${jetbrainsMono.variable}`} suppressHydrationWarning>
-      <body className="font-sans antialiased" suppressHydrationWarning>
+    <html lang="en" suppressHydrationWarning>
+      <body className="font-sans antialiased selection:bg-primary/20 selection:text-foreground" suppressHydrationWarning>
         <ThemeProvider
           attribute="class"
           defaultTheme="light"

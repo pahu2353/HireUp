@@ -5,6 +5,13 @@ import { DashboardShell } from "@/components/dashboard/dashboard-shell"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog"
+import {
   Card,
   CardContent,
   CardDescription,
@@ -55,6 +62,7 @@ export default function ApplicantDashboard() {
   const [jobs, setJobs] = useState<Job[]>([])
   const [loading, setLoading] = useState(true)
   const [userId, setUserId] = useState("")
+  const [selectedJob, setSelectedJob] = useState<Job | null>(null)
   const maxApplications = 5
   const appliedCount = jobs.filter(j => j.applied).length
   const remainingApplications = maxApplications - appliedCount
@@ -94,10 +102,15 @@ export default function ApplicantDashboard() {
     if (!userId) return
     try {
       await applyJob(userId, jobId)
-      setJobs(
-        jobs.map((j) =>
+      setJobs((prev) =>
+        prev.map((j) =>
           j.id === jobId ? { ...j, applied: true, application_status: "submitted" } : j
         )
+      )
+      setSelectedJob((prev) =>
+        prev && prev.id === jobId
+          ? { ...prev, applied: true, application_status: "submitted" }
+          : prev
       )
       toast.success("Application submitted successfully!")
     } catch (err) {
@@ -151,7 +164,11 @@ export default function ApplicantDashboard() {
             const hasApplied = job.applied
             const statusLabel = toApplicantStatus(job.application_status)
             return (
-              <Card key={job.id} className="transition-colors hover:border-primary/20">
+              <Card
+                key={job.id}
+                onClick={() => setSelectedJob(job)}
+                className="cursor-pointer transition-colors hover:border-primary/20"
+              >
                 <CardHeader className="pb-3">
                   <div className="flex items-start justify-between">
                     <div>
@@ -195,7 +212,10 @@ export default function ApplicantDashboard() {
                     </div>
                     <Button
                       size="sm"
-                      onClick={() => handleApply(job.id)}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        handleApply(job.id)
+                      }}
                       disabled={hasApplied || remainingApplications === 0}
                       variant={hasApplied ? "secondary" : "default"}
                     >
@@ -215,6 +235,72 @@ export default function ApplicantDashboard() {
           })}
         </div>
       )}
+
+      <Dialog open={!!selectedJob} onOpenChange={(open) => !open && setSelectedJob(null)}>
+        <DialogContent className="max-w-2xl">
+          {selectedJob ? (
+            <>
+              <DialogHeader>
+                <DialogTitle className="text-xl">{selectedJob.title}</DialogTitle>
+                <DialogDescription>
+                  {selectedJob.company_name || "Company"} • {selectedJob.location}
+                </DialogDescription>
+              </DialogHeader>
+
+              <div className="space-y-5">
+                <div className="rounded-lg border border-border bg-muted/20 p-4">
+                  <p className="text-sm leading-relaxed text-foreground">
+                    {selectedJob.description || "No description available."}
+                  </p>
+                </div>
+
+                <div>
+                  <p className="mb-2 text-sm font-medium text-foreground">Required Skills</p>
+                  <div className="flex flex-wrap gap-2">
+                    {selectedJob.skills.map((skill) => (
+                      <Badge key={skill} variant="secondary" className="text-xs">
+                        {skill}
+                      </Badge>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
+                  <span className="flex items-center gap-1">
+                    <MapPin className="h-3.5 w-3.5" />
+                    {selectedJob.location}
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <DollarSign className="h-3.5 w-3.5" />
+                    {selectedJob.salary_range}
+                  </span>
+                  <span className="flex items-center gap-1">
+                    <Briefcase className="h-3.5 w-3.5" />
+                    {toApplicantStatus(selectedJob.application_status)}
+                  </span>
+                </div>
+
+                <div className="flex justify-end">
+                  <Button
+                    onClick={() => handleApply(selectedJob.id)}
+                    disabled={selectedJob.applied || remainingApplications === 0}
+                    variant={selectedJob.applied ? "secondary" : "default"}
+                  >
+                    {selectedJob.applied ? (
+                      <>
+                        <CheckCircle2 className="mr-1 h-3.5 w-3.5" />
+                        {toApplicantStatus(selectedJob.application_status)}
+                      </>
+                    ) : (
+                      "Apply"
+                    )}
+                  </Button>
+                </div>
+              </div>
+            </>
+          ) : null}
+        </DialogContent>
+      </Dialog>
     </DashboardShell>
   )
 }

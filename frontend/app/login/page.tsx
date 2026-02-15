@@ -19,16 +19,17 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false)
 
   return (
-    <div className="relative flex min-h-screen">
-      <div className="hidden w-1/2 flex-col justify-between bg-card p-12 lg:flex">
+    <div className="relative flex min-h-screen gap-6 px-4 py-4 md:px-6 md:py-6">
+      <div className="app-shell hidden w-1/2 flex-col justify-between bg-gradient-to-br from-card via-card to-primary/10 p-12 lg:flex">
         <Link href="/" className="flex items-center gap-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-primary/70">
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-accent">
             <span className="text-sm font-bold text-primary-foreground">H</span>
           </div>
           <span className="text-lg font-bold text-foreground">HireUp</span>
         </Link>
         <div>
-          <h2 className="text-3xl font-bold leading-tight text-foreground">
+          <p className="eyebrow mb-5">Operator Mode</p>
+          <h2 className="text-4xl font-semibold leading-tight tracking-[-0.02em] text-foreground">
             Quality over quantity.
             <br />
             <span className="bg-gradient-to-r from-primary to-destructive bg-clip-text text-transparent">Signal over noise.</span>
@@ -43,14 +44,14 @@ export default function LoginPage() {
         </p>
       </div>
 
-      <div className="flex w-full flex-col items-center justify-center px-6 lg:w-1/2">
+      <div className="flex w-full flex-col items-center justify-center lg:w-1/2">
         <div className="absolute right-4 top-4">
           <ThemeToggle />
         </div>
-        <div className="w-full max-w-sm">
+        <div className="app-shell w-full max-w-md p-6 md:p-8">
           <div className="mb-8 lg:hidden">
             <Link href="/" className="flex items-center gap-2">
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-primary/70">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-accent">
                 <span className="text-sm font-bold text-primary-foreground">
                   H
                 </span>
@@ -59,13 +60,13 @@ export default function LoginPage() {
             </Link>
           </div>
 
-          <h1 className="text-2xl font-bold text-foreground">Welcome back</h1>
-          <p className="mt-1 text-sm text-muted-foreground">
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">Welcome back</h1>
+          <p className="mt-1 text-sm leading-relaxed text-muted-foreground">
             Log in to your account to continue.
           </p>
 
           <Tabs defaultValue="applicant" className="mt-6" onValueChange={(v) => setAccountType(v === "company" ? "company" : "user")}>
-            <TabsList className="w-full">
+            <TabsList className="w-full rounded-xl bg-secondary/60">
               <TabsTrigger value="applicant" className="flex-1">
                 Applicant
               </TabsTrigger>
@@ -115,7 +116,7 @@ export default function LoginPage() {
                   />
                 </div>
                 {error && <p className="text-sm text-destructive">{error}</p>}
-                <Button className="w-full" type="submit" disabled={loading}>
+                <Button className="w-full rounded-full" type="submit" disabled={loading}>
                   {loading ? "Signing in…" : "Log in as Applicant"}
                 </Button>
               </form>
@@ -162,7 +163,7 @@ export default function LoginPage() {
                   />
                 </div>
                 {error && <p className="text-sm text-destructive">{error}</p>}
-                <Button className="w-full" type="submit" disabled={loading}>
+                <Button className="w-full rounded-full" type="submit" disabled={loading}>
                   {loading ? "Signing in…" : "Log in as Company"}
                 </Button>
               </form>

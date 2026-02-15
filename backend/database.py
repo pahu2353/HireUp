@@ -107,6 +107,31 @@ def init_db() -> None:
                 FOREIGN KEY (company_id) REFERENCES companies(id)
             );
             CREATE INDEX IF NOT EXISTS idx_agent_messages_company ON agent_messages(company_id);
+
+            CREATE TABLE IF NOT EXISTS custom_reports (
+                id TEXT PRIMARY KEY,
+                company_id TEXT NOT NULL,
+                job_id TEXT,
+                report_name TEXT NOT NULL,
+                custom_prompt TEXT NOT NULL,
+                created_at TEXT DEFAULT (datetime('now')),
+                FOREIGN KEY (company_id) REFERENCES companies(id),
+                FOREIGN KEY (job_id) REFERENCES jobs(id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_custom_reports_company ON custom_reports(company_id);
+
+            CREATE TABLE IF NOT EXISTS report_scores (
+                id TEXT PRIMARY KEY,
+                report_id TEXT NOT NULL,
+                application_id TEXT NOT NULL,
+                custom_fit_score INTEGER,
+                custom_fit_reasoning TEXT,
+                scored_at TEXT DEFAULT (datetime('now')),
+                FOREIGN KEY (report_id) REFERENCES custom_reports(id),
+                FOREIGN KEY (application_id) REFERENCES applications(id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_report_scores_report ON report_scores(report_id);
+            CREATE INDEX IF NOT EXISTS idx_report_scores_application ON report_scores(application_id);
             """
         )
 
@@ -145,6 +170,12 @@ def init_db() -> None:
             pass
         conn.execute("UPDATE agent_messages SET chat_id = 'legacy' WHERE chat_id IS NULL OR chat_id = ''")
         conn.execute("CREATE INDEX IF NOT EXISTS idx_agent_messages_company_chat ON agent_messages(company_id, chat_id)")
+        
+        # Add report metadata column for agent messages
+        try:
+            conn.execute("ALTER TABLE agent_messages ADD COLUMN report_metadata TEXT")
+        except sqlite3.OperationalError:
+            pass
 
 
 def hash_password(password: str) -> str:
@@ -783,14 +814,15 @@ def save_agent_message(
     content: str,
     candidates: str = "[]",
     ranking_source: str = "",
+    report_metadata: str = "",
 ) -> Dict[str, Any]:
     with get_conn() as conn:
         conn.execute(
             """
-            INSERT OR REPLACE INTO agent_messages (id, company_id, chat_id, role, content, candidates, ranking_source)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
+            INSERT OR REPLACE INTO agent_messages (id, company_id, chat_id, role, content, candidates, ranking_source, report_metadata)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (message_id, company_id, chat_id, role, content, candidates, ranking_source),
+            (message_id, company_id, chat_id, role, content, candidates, ranking_source, report_metadata),
         )
     return {
         "id": message_id,
@@ -800,6 +832,7 @@ def save_agent_message(
         "content": content,
         "candidates": candidates,
         "ranking_source": ranking_source,
+        "report_metadata": report_metadata,
     }
 
 
@@ -808,7 +841,7 @@ def get_agent_messages(company_id: str, chat_id: str | None = None) -> List[Dict
         if chat_id:
             rows = conn.execute(
                 """
-                SELECT id, company_id, chat_id, role, content, candidates, ranking_source, created_at
+                SELECT id, company_id, chat_id, role, content, candidates, ranking_source, report_metadata, created_at
                 FROM agent_messages
                 WHERE company_id = ? AND chat_id = ?
                 ORDER BY created_at ASC
@@ -818,7 +851,7 @@ def get_agent_messages(company_id: str, chat_id: str | None = None) -> List[Dict
         else:
             rows = conn.execute(
                 """
-                SELECT id, company_id, chat_id, role, content, candidates, ranking_source, created_at
+                SELECT id, company_id, chat_id, role, content, candidates, ranking_source, report_metadata, created_at
                 FROM agent_messages
                 WHERE company_id = ?
                 ORDER BY created_at ASC
@@ -851,5 +884,94 @@ def get_agent_chats(company_id: str) -> List[Dict[str, Any]]:
             ORDER BY updated_at DESC
             """,
             (company_id,),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+# --- Custom Reports ---
+def create_custom_report(
+    company_id: str,
+    job_id: str | None,
+    report_name: str,
+    custom_prompt: str,
+) -> str:
+    """Create a new custom scoring report."""
+    report_id = str(uuid4())
+    with get_conn() as conn:
+        conn.execute(
+            """
+            INSERT INTO custom_reports (id, company_id, job_id, report_name, custom_prompt)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (report_id, company_id, job_id, report_name, custom_prompt),
+        )
+    return report_id
+
+
+def get_custom_reports(company_id: str, job_id: str | None = None) -> List[Dict[str, Any]]:
+    """Get all custom reports for a company, optionally filtered by job."""
+    with get_conn() as conn:
+        if job_id:
+            rows = conn.execute(
+                """
+                SELECT id, company_id, job_id, report_name, custom_prompt, created_at
+                FROM custom_reports
+                WHERE company_id = ? AND (job_id = ? OR job_id IS NULL)
+                ORDER BY created_at DESC
+                """,
+                (company_id, job_id),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """
+                SELECT id, company_id, job_id, report_name, custom_prompt, created_at
+                FROM custom_reports
+                WHERE company_id = ?
+                ORDER BY created_at DESC
+                """,
+                (company_id,),
+            ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def get_custom_report(report_id: str) -> Dict[str, Any] | None:
+    """Get a specific custom report by ID."""
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT id, company_id, job_id, report_name, custom_prompt, created_at FROM custom_reports WHERE id = ?",
+            (report_id,),
+        ).fetchone()
+    return dict(row) if row else None
+
+
+def save_report_score(
+    report_id: str,
+    application_id: str,
+    custom_fit_score: int,
+    custom_fit_reasoning: str,
+) -> None:
+    """Save a custom fit score for an application within a report."""
+    score_id = str(uuid4())
+    with get_conn() as conn:
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO report_scores (id, report_id, application_id, custom_fit_score, custom_fit_reasoning)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (score_id, report_id, application_id, custom_fit_score, custom_fit_reasoning),
+        )
+
+
+def get_report_scores(report_id: str) -> List[Dict[str, Any]]:
+    """Get all scores for a specific report."""
+    with get_conn() as conn:
+        rows = conn.execute(
+            """
+            SELECT rs.id, rs.report_id, rs.application_id, rs.custom_fit_score, rs.custom_fit_reasoning, rs.scored_at
+            FROM report_scores rs
+            WHERE rs.report_id = ?
+            ORDER BY rs.custom_fit_score DESC
+            """,
+            (report_id,),
         ).fetchall()
     return [dict(row) for row in rows]

@@ -273,6 +273,7 @@ export async function saveAgentMessages(
     role: string
     content: string
     candidates?: string
+    report_metadata?: string
   }>,
 ) {
   return postJson<{ status: string; count: number }>("/agent-messages", {
@@ -289,4 +290,70 @@ export async function clearAgentMessages(companyId: string, chatId?: string) {
   const data = await res.json().catch(() => ({}))
   if (!res.ok) throw new Error((data as { detail?: string }).detail ?? "Request failed")
   return data
+}
+
+
+// --- Custom Reports ---
+
+export interface CustomReport {
+  id: string
+  company_id: string
+  job_id: string | null
+  report_name: string
+  custom_prompt: string
+  created_at: string
+}
+
+export interface ReportCandidate {
+  user_id: string
+  user_name: string
+  custom_fit_score: number
+  custom_fit_reasoning: string
+}
+
+export interface GenerateReportResponse {
+  status: string
+  report_id: string
+  report_name: string
+  custom_prompt: string
+  total_scored: number
+  top_candidates: ReportCandidate[]
+}
+
+export async function generateCustomReport(payload: {
+  company_id: string
+  job_id: string
+  report_name: string
+  custom_prompt: string
+}): Promise<GenerateReportResponse> {
+  return postJson<GenerateReportResponse>("/generate-custom-report", payload)
+}
+
+export async function getCustomReports(companyId: string, jobId?: string) {
+  const qs = new URLSearchParams({ company_id: companyId })
+  if (jobId) qs.set("job_id", jobId)
+  const url = `${getApiUrl("/custom-reports")}?${qs.toString()}`
+  const res = await fetch(url)
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error((data as { detail?: string }).detail ?? "Request failed")
+  return data as { company_id: string; reports: CustomReport[] }
+}
+
+export async function getReportScores(reportId: string) {
+  const url = `${getApiUrl("/report-scores")}?report_id=${encodeURIComponent(reportId)}`
+  const res = await fetch(url)
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error((data as { detail?: string }).detail ?? "Request failed")
+  return data as {
+    report_id: string
+    report: CustomReport
+    scores: Array<{
+      id: string
+      report_id: string
+      application_id: string
+      custom_fit_score: number
+      custom_fit_reasoning: string
+      scored_at: string
+    }>
+  }
 }

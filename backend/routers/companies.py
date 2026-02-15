@@ -159,6 +159,7 @@ class SaveAgentMessageRequest(BaseModel):
     role: str
     content: str
     candidates: Optional[str] = "[]"
+    report_metadata: Optional[str] = ""
 
 
 class SaveAgentMessagesRequest(BaseModel):
@@ -211,6 +212,7 @@ def save_agent_messages(payload: SaveAgentMessagesRequest):
             role=msg.role,
             content=msg.content,
             candidates=msg.candidates or "[]",
+            report_metadata=msg.report_metadata or "",
         )
     return {"status": "ok", "count": len(payload.messages)}
 
@@ -219,3 +221,44 @@ def save_agent_messages(payload: SaveAgentMessagesRequest):
 def clear_agent_messages(company_id: str, chat_id: Optional[str] = None):
     database.clear_agent_messages(company_id, chat_id=chat_id)
     return {"status": "ok"}
+
+
+class GenerateCustomReportRequest(BaseModel):
+    company_id: str
+    job_id: str
+    report_name: str
+    custom_prompt: str
+
+
+@router.post("/generate-custom-report")
+def generate_custom_report(payload: GenerateCustomReportRequest):
+    """Generate a custom report with hybrid scoring (50% job + 50% custom criteria)."""
+    result = company_service.generate_custom_report(
+        company_id=payload.company_id,
+        job_id=payload.job_id,
+        report_name=payload.report_name,
+        custom_prompt=payload.custom_prompt,
+    )
+    return {"status": "ok", **result}
+
+
+@router.get("/custom-reports")
+def get_custom_reports(company_id: str, job_id: Optional[str] = None):
+    """Get all custom reports for a company, optionally filtered by job."""
+    reports = database.get_custom_reports(company_id, job_id=job_id)
+    return {"company_id": company_id, "reports": reports}
+
+
+@router.get("/report-scores")
+def get_report_scores(report_id: str):
+    """Get all candidate scores for a specific report."""
+    report = database.get_custom_report(report_id)
+    if not report:
+        return {"error": "Report not found"}, 404
+    
+    scores = database.get_report_scores(report_id)
+    return {
+        "report_id": report_id,
+        "report": report,
+        "scores": scores,
+    }
