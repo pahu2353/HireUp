@@ -64,6 +64,7 @@ function CandidatesPage() {
   const [selectedReportId, setSelectedReportId] = useState("")
   const [customReports, setCustomReports] = useState<CustomReport[]>([])
   const [reportScoresMap, setReportScoresMap] = useState<Record<string, Record<string, number>>>({})
+  const [reportReasoningMap, setReportReasoningMap] = useState<Record<string, Record<string, string>>>({})
   const [unscoredCount, setUnscoredCount] = useState(0)
   const [selectedCandidateId, setSelectedCandidateId] = useState<string>("")
 
@@ -122,10 +123,13 @@ function CandidatesPage() {
         try {
           const res = await getReportScores(selectedReportId)
           const scoreMap: Record<string, number> = {}
+          const reasoningMap: Record<string, string> = {}
           res.scores.forEach((s) => {
             scoreMap[s.application_id] = s.custom_fit_score
+            if (s.custom_fit_reasoning) reasoningMap[s.application_id] = s.custom_fit_reasoning
           })
           setReportScoresMap((prev) => ({ ...prev, [selectedReportId]: scoreMap }))
+          setReportReasoningMap((prev) => ({ ...prev, [selectedReportId]: reasoningMap }))
         } catch (e) {
           console.error("Failed to load report scores:", e)
         }
@@ -574,11 +578,17 @@ function CandidatesPage() {
                     </Badge>
                   ))}
                 </div>
-                {candidate.fit_score !== null && candidate.fit_reasoning && (
-                  <div className="mb-3 text-xs text-muted-foreground leading-relaxed">
-                    {candidate.fit_reasoning}
-                  </div>
-                )}
+                {(() => {
+                  const reportReasoning = selectedReportId
+                    ? reportReasoningMap[selectedReportId]?.[candidate.application_id]
+                    : undefined
+                  const displayReasoning = reportReasoning || candidate.fit_reasoning
+                  return displayReasoning ? (
+                    <div className="mb-3 text-xs text-muted-foreground leading-relaxed">
+                      {displayReasoning}
+                    </div>
+                  ) : null
+                })()}
                 {candidate.status === "in_progress" && candidate.technical_score !== null && (
                   <div className="mb-3 text-xs text-muted-foreground">
                     Technical interview score: {candidate.technical_score}/10

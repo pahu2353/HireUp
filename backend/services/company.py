@@ -547,9 +547,10 @@ def _openai_hybrid_rank_candidates(
     candidates: List[Dict]
 ) -> List[Dict]:
     """
-    Use OpenAI to score candidates with hybrid weighting:
-    50% job posting fit + 50% custom criteria fit.
-    Returns candidates with custom_fit_score and custom_fit_reasoning.
+    Use OpenAI to score candidates with recruiter-driven hybrid scoring.
+    The recruiter's custom criteria are the primary signal, with the original
+    job posting providing baseline context for role alignment.
+    Returns candidates with custom_fit_score, custom_fit_reasoning, and skill analysis.
     """
     api_key = _read_env_value("OPENAI_API_KEY")
     if not api_key:
@@ -571,16 +572,19 @@ def _openai_hybrid_rank_candidates(
     system_msg = (
         "You are a recruiting fit-scoring and skill analysis assistant. "
         "For each candidate, provide THREE outputs: (1) overall fit score, (2) reasoning, (3) skill breakdown. "
-        "Evaluate candidates based on BOTH the original job posting requirements AND the recruiter's additional criteria. "
+        "The recruiter's custom criteria represent what they care about most for this search — "
+        "treat it as the primary driver of your scoring. The original job posting provides useful "
+        "baseline context about the role, but the recruiter's specific ask should carry the most weight. "
         "CRITICAL: Score each candidate independently and absolutely. "
         "Do NOT compare candidates to each other. Do NOT adjust scores based on the strength of other candidates in this batch. "
         "A candidate's score should be the same whether they are scored alone or with 100 others. "
         "Return strict JSON only with shape: "
         '{"ranked":[{"user_id":"...","score":0,"reasoning":"...","skills":[{"name":"...","score":0}],"skill_summary":"..."}]}. '
-        "In reasoning, explain how well they match both the job requirements and the additional criteria. "
+        "In reasoning, explain how well they match the recruiter's criteria and the role context. "
         "If profile metadata (grad_date, linkedin_url, github_url) appears inconsistent with resume_text, "
         "explicitly flag it in reasoning using prefix 'DISCREPANCY FLAG:'. "
-        "For skills: analyze ONLY the job-required skills. Score each 0-100 based on resume evidence. "
+        "For skills: analyze skills relevant to BOTH the job posting AND the recruiter's custom criteria. "
+        "Score each 0-100 based on resume evidence. "
         "Provide a brief skill_summary (1-2 sentences) describing overall technical strengths."
     )
 
@@ -1434,11 +1438,19 @@ def generate_custom_report(
         user_id = str(item.get("user_id") or "")
         app = app_by_user.get(user_id)
         if app:
+            # Extract skill names from the analysis for display
+            skill_names = []
+            if item.get("skill_analysis"):
+                for s in item["skill_analysis"]:
+                    if isinstance(s, dict) and s.get("name"):
+                        skill_names.append(s["name"])
             top_candidates.append({
                 "user_id": user_id,
                 "user_name": app.get("user_name", ""),
                 "custom_fit_score": item.get("custom_fit_score", 0),
                 "custom_fit_reasoning": item.get("custom_fit_reasoning", ""),
+                "skills": skill_names,
+                "skill_summary": item.get("skill_summary", ""),
             })
     
     return {

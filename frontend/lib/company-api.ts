@@ -241,6 +241,7 @@ export interface AgentMessageRecord {
   role: "user" | "assistant"
   content: string
   candidates?: TopCandidate[]
+  report_metadata?: string
 }
 
 export interface AgentChatRecord {
@@ -312,6 +313,8 @@ export interface ReportCandidate {
   user_name: string
   custom_fit_score: number
   custom_fit_reasoning: string
+  skills?: string[]
+  skill_summary?: string
 }
 
 export interface GenerateReportResponse {

@@ -198,6 +198,7 @@ def get_agent_messages(company_id: str, chat_id: Optional[str] = None):
             "role": row["role"],
             "content": row["content"],
             "candidates": candidates,
+            "report_metadata": row.get("report_metadata") or "",
         })
     return {"company_id": company_id, "chat_id": chat_id, "messages": result}
 

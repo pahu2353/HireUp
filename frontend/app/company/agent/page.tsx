@@ -47,10 +47,8 @@ interface Message {
 }
 
 const SUGGESTED_PROMPTS = [
-  "Top 3 applicants with Python and C++",
-  "Give me the top 5 candidates with machine learning experience",
   "Find candidates with React and TypeScript for our frontend team",
-  "Best 7 applicants with distributed systems and API design",
+  "I'm looking for the Python and C++ applicants",
 ]
 
 const WELCOME_MESSAGE: Message = {
@@ -277,12 +275,16 @@ function AgentPageContent() {
     const newMessages: Message[] = []
 
     // Fetch applicant count and start progress animation
-    let estimatedTime = 15000 // Default fallback
+    // Backend processes in parallel batches of 5, up to 20 threads at once.
+    // Each OpenAI call takes ~15-25s, so total time ≈ ceil(candidates/5) / 20 * ~20s
+    let estimatedTime = 30000 // Default fallback
     let progressInterval: ReturnType<typeof setInterval> | null = null
     try {
       const applicantsRes = await getCompanyApplicants(companyId, jobId.trim())
       const candidateCount = Math.min(applicantsRes.applicants.length, 100)
-      estimatedTime = candidateCount * 417 // 417ms per candidate (25s for 60)
+      const numBatches = Math.ceil(candidateCount / 5)
+      const parallelRounds = Math.ceil(numBatches / 20)
+      estimatedTime = Math.max(25000, parallelRounds * 20000)
     } catch {
       // Use default
     }
@@ -302,9 +304,18 @@ function AgentPageContent() {
         custom_prompt: prompt,
       })
 
-      const topNames = response.top_candidates
+      // Map API response candidates to TopCandidate format for display
+      const candidateCards: TopCandidate[] = response.top_candidates.map((c) => ({
+        user_id: c.user_id,
+        name: c.user_name || "Unknown",
+        skills: c.skills ?? [],
+        score: c.custom_fit_score,
+        reasoning: c.custom_fit_reasoning,
+      }))
+
+      const topNames = candidateCards
         .slice(0, 3)
-        .map((c) => c.user_name || "Unknown")
+        .map((c) => c.name)
         .join(", ")
 
       // Create natural response based on number of candidates
@@ -312,13 +323,13 @@ function AgentPageContent() {
       if (response.total_scored === 0) {
         responseText = `I couldn't find any candidates for this role. Try adjusting your criteria or check if there are applicants in the system.`
       } else if (response.total_scored === 1) {
-        responseText = `Found 1 candidate who matches your criteria. Check out the report below to see the details!`
+        responseText = `Found 1 candidate who matches your criteria.`
       } else if (topNames && response.total_scored <= 3) {
-        responseText = `I found ${response.total_scored} candidates who fit what you're looking for. Top picks: ${topNames}. Click below to see the full breakdown.`
+        responseText = `I found ${response.total_scored} candidates who fit what you're looking for.`
       } else if (topNames) {
-        responseText = `Great! I ranked ${response.total_scored} candidates based on your criteria. Your top matches are ${topNames}. Check out the report below for the complete ranking and detailed scores.`
+        responseText = `Great! I ranked ${response.total_scored} candidates based on your criteria. Your top matches are ${topNames}.`
       } else {
-        responseText = `I've ranked ${response.total_scored} candidates for you. Click the button below to see the full report with scores and reasoning.`
+        responseText = `I've ranked ${response.total_scored} candidates for you.`
       }
 
       const assistantMessage: Message = {
@@ -641,6 +652,30 @@ function AgentPageContent() {
           )}
         </CardContent>
       </Card>
+
+      <Dialog open={reportNameDialogOpen} onOpenChange={(open) => { if (!open) { setReportNameDialogOpen(false); setReportNameError("") } }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Name your report</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3 pt-2">
+            <Input
+              value={reportName}
+              onChange={(e) => { setReportName(e.target.value); setReportNameError("") }}
+              placeholder="Report name"
+            />
+            {reportNameError && <p className="text-sm text-destructive">{reportNameError}</p>}
+            <div className="flex justify-end gap-2">
+              <Button variant="outline" onClick={() => { setReportNameDialogOpen(false); setReportNameError("") }}>
+                Cancel
+              </Button>
+              <Button onClick={confirmReportGeneration}>
+                Generate Report
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={!!resumeModalUser} onOpenChange={(open) => !open && setResumeModalUser(null)}>
         <DialogContent className="max-w-3xl h-[80vh] flex flex-col">
