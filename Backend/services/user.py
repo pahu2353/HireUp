@@ -124,6 +124,9 @@ def get_user_profile(user_id: str) -> Dict:
 
     career_objective = user.get("career_objective") or user.get("objective") or ""
     has_resume_pdf = user.get("resume_pdf") is not None
+    
+    # Use resume_text if available, otherwise fall back to resume field
+    resume_content = user.get("resume_text") or user.get("resume") or ""
 
     return {
         "user_id": user.get("id", ""),
@@ -134,7 +137,7 @@ def get_user_profile(user_id: str) -> Dict:
         "last_name": last_name,
         "objective": user.get("objective", "") or "",
         "career_objective": career_objective,
-        "resume": user.get("resume", "") or "",
+        "resume": resume_content,
         "resume_text": user.get("resume_text", "") or "",
         "skills": [str(s) for s in skills],
         "interests": json.dumps(skills),

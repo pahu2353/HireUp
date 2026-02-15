@@ -8,7 +8,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Textarea } from "@/components/ui/textarea"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { getAuth } from "@/lib/api"
+import { getAuth, getResumeUrl } from "@/lib/api"
 import { getUserProfile, updateUserProfile, UserProfile } from "@/lib/user-api"
 
 const emptyProfile: UserProfile = {
@@ -39,6 +39,8 @@ export default function ApplicantProfilePage() {
   const [error, setError] = useState("")
   const [info, setInfo] = useState("")
   const [isSaving, setIsSaving] = useState(false)
+  const [hasResumePdf, setHasResumePdf] = useState(false)
+  const [isUploadingResume, setIsUploadingResume] = useState(false)
 
   useEffect(() => {
     const auth = getAuth()
@@ -51,6 +53,7 @@ export default function ApplicantProfilePage() {
         const p = sanitizeProfile(data)
         setProfile(p)
         setSkillsInput(p.skills.join(", "))
+        setHasResumePdf((data as any).has_resume_pdf ?? false)
       })
       .catch((e) => setError(e instanceof Error ? e.message : "Failed to load profile"))
   }, [])
@@ -77,6 +80,48 @@ export default function ApplicantProfilePage() {
       setError(e instanceof Error ? e.message : "Failed to save profile")
     } finally {
       setIsSaving(false)
+    }
+  }
+
+  const handleResumeUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file || !profile.user_id) return
+    if (file.type !== "application/pdf") {
+      setError("Please upload a PDF file")
+      return
+    }
+    setError("")
+    setInfo("")
+    setIsUploadingResume(true)
+    try {
+      const reader = new FileReader()
+      reader.onload = async (event) => {
+        try {
+          const base64 = event.target?.result as string
+          const pdfBase64 = base64.split(",")[1]
+          const response = await fetch(`http://localhost:8000/users/upload-resume/${profile.user_id}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ pdf_base64: pdfBase64 }),
+          })
+          if (!response.ok) throw new Error("Failed to upload resume")
+          setInfo("Resume uploaded successfully")
+          setHasResumePdf(true)
+          // Refresh profile to get updated resume_text
+          const refreshed = await getUserProfile(profile.user_id)
+          const p = sanitizeProfile(refreshed)
+          setProfile(p)
+          setSkillsInput(p.skills.join(", "))
+        } catch (err) {
+          setError(err instanceof Error ? err.message : "Failed to upload resume")
+        } finally {
+          setIsUploadingResume(false)
+        }
+      }
+      reader.readAsDataURL(file)
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to upload resume")
+      setIsUploadingResume(false)
     }
   }
 
@@ -136,14 +181,49 @@ export default function ApplicantProfilePage() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Resume / Summary</CardTitle>
+            <CardTitle>Resume</CardTitle>
           </CardHeader>
-          <CardContent>
-            <Textarea
-              value={profile.resume ?? ""}
-              onChange={(e) => setProfile((p) => ({ ...p, resume: e.target.value }))}
-              className="min-h-[120px]"
-            />
+          <CardContent className="space-y-4">
+            <div className="space-y-2">
+              <Label htmlFor="resume-upload">
+                {hasResumePdf ? "Replace Resume (PDF)" : "Upload Resume (PDF)"}
+              </Label>
+              <div className="flex items-center gap-3">
+                <Input
+                  id="resume-upload"
+                  type="file"
+                  accept=".pdf"
+                  onChange={handleResumeUpload}
+                  disabled={isUploadingResume}
+                  className="flex-1"
+                />
+                {hasResumePdf && (
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      const url = getResumeUrl(profile.user_id)
+                      window.open(url, "_blank")
+                    }}
+                  >
+                    View Resume
+                  </Button>
+                )}
+              </div>
+              {isUploadingResume && (
+                <p className="text-sm text-muted-foreground">Uploading and processing resume...</p>
+              )}
+            </div>
+            {profile.resume && (
+              <div className="space-y-2">
+                <Label>Resume Text (Auto-extracted)</Label>
+                <Textarea
+                  value={profile.resume ?? ""}
+                  readOnly
+                  disabled
+                  className="min-h-[200px] bg-muted/50 text-muted-foreground cursor-not-allowed"
+                />
+              </div>
+            )}
           </CardContent>
         </Card>
 

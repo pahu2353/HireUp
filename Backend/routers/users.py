@@ -1,10 +1,12 @@
 """User (applicant) routes."""
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import Response
+from pydantic import BaseModel
 
 from schemas.user import ApplyJobRequest, UpdateProfileRequest, UpdateUserProfileRequest
 from services import user as user_service
 import database
+import pdf_utils
 
 router = APIRouter(tags=["users"])
 
@@ -74,3 +76,44 @@ def get_user_profile(user_id: str):
 def update_user_profile(payload: UpdateUserProfileRequest):
     profile = user_service.update_user_profile_v2(payload.model_dump())
     return {"status": "ok", "profile": profile}
+
+
+class UploadResumeRequest(BaseModel):
+    pdf_base64: str
+
+
+@router.post("/users/upload-resume/{user_id}")
+def upload_resume(user_id: str, payload: UploadResumeRequest):
+    """Upload a new resume PDF and extract text."""
+    import base64
+    
+    user = database.get_user_by_id(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    try:
+        pdf_bytes = base64.b64decode(payload.pdf_base64)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid PDF base64")
+    
+    if not pdf_bytes:
+        raise HTTPException(status_code=400, detail="Empty PDF")
+    
+    # Extract text from PDF
+    resume_text = pdf_utils.extract_pdf_text(pdf_bytes)
+    
+    # Update user with new PDF and extracted text
+    success = database.update_user(
+        user_id=user_id,
+        resume_pdf=pdf_bytes,
+        resume_text=resume_text,
+    )
+    
+    if not success:
+        raise HTTPException(status_code=500, detail="Failed to update resume")
+    
+    return {
+        "status": "ok",
+        "message": "Resume uploaded successfully",
+        "text_length": len(resume_text),
+    }
