@@ -34,6 +34,7 @@ import {
 import {
   PolarAngleAxis,
   PolarGrid,
+  PolarRadiusAxis,
   Radar,
   RadarChart,
   ResponsiveContainer,
@@ -707,6 +708,12 @@ function CandidatesPage() {
                         >
                           <PolarGrid />
                           <PolarAngleAxis dataKey="skill" tick={{ fontSize: 11 }} />
+                          <PolarRadiusAxis
+                            domain={[0, 100]}
+                            ticks={[20, 40, 60, 80, 100]}
+                            tick={false}
+                            axisLine={false}
+                          />
                           <Radar
                             name="Score"
                             dataKey="score"
