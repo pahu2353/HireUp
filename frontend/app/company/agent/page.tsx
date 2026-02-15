@@ -1,6 +1,6 @@
 "use client"
 
-import { FormEvent, useEffect, useRef, useState } from "react"
+import { FormEvent, useEffect, useRef, useState, Suspense } from "react"
 import { useSearchParams } from "next/navigation"
 import { DashboardShell } from "@/components/dashboard/dashboard-shell"
 import { Badge } from "@/components/ui/badge"
@@ -28,6 +28,8 @@ import {
   saveAgentMessages,
   TopCandidate,
   clearAgentMessages,
+  generateCustomReport,
+  GenerateReportResponse,
 } from "@/lib/company-api"
 
 interface Message {
@@ -35,6 +37,12 @@ interface Message {
   role: "user" | "assistant"
   content: string
   candidates?: TopCandidate[]
+  report?: {
+    report_id: string
+    report_name: string
+    custom_prompt: string
+    total_scored: number
+  }
 }
 
 const SUGGESTED_PROMPTS = [
@@ -48,7 +56,7 @@ const WELCOME_MESSAGE: Message = {
   id: "welcome",
   role: "assistant",
   content:
-    "Hi! I am your recruiting assistant. Describe the ideal candidate and I will rank your applicants. You can continue any previous chat from history below.",
+    "Hey there! Tell me what kind of candidate you're looking for, and I'll help you find the best matches from your applicant pool. Feel free to resume any previous conversation from the history below.",
 }
 
 function formatChatTime(value: string): string {
@@ -63,7 +71,7 @@ function buildNewChatId() {
   return `chat-${Date.now()}`
 }
 
-export default function AgentPage() {
+function AgentPage() {
   const searchParams = useSearchParams()
   const [messages, setMessages] = useState<Message[]>([WELCOME_MESSAGE])
   const [input, setInput] = useState("")
@@ -90,6 +98,7 @@ export default function AgentPage() {
       role: m.role,
       content: m.content,
       candidates: m.candidates && m.candidates.length > 0 ? m.candidates : undefined,
+      report: m.report_metadata ? JSON.parse(m.report_metadata) : undefined,
     }))
     setActiveChatId(targetChatId)
     setMessages(mapped.length > 0 ? mapped : [WELCOME_MESSAGE])
@@ -156,6 +165,7 @@ export default function AgentPage() {
         role: m.role,
         content: m.content,
         candidates: JSON.stringify(m.candidates ?? []),
+        report_metadata: m.report ? JSON.stringify(m.report) : "",
       }))
     if (toSave.length === 0) return
 
@@ -188,27 +198,80 @@ export default function AgentPage() {
     const newMessages: Message[] = [userMessage]
 
     try {
-      const response = await getTopCandidates(jobId.trim(), prompt)
-      const jobTitle = jobs.find((j) => j.id === jobId)?.title ?? "this job"
-      const topNames = response.top_candidates
-        .slice(0, 3)
-        .map((c) => c.name || "Unknown")
-        .join(", ")
-      const assistantMessage: Message = {
-        id: String(Date.now() + 1),
-        role: "assistant",
-        content: `Ranked ${response.top_candidates.length} candidates for ${jobTitle}. Top picks: ${topNames || "None"}.`,
-        candidates: response.top_candidates,
+      // Check if there's a recent report in the conversation for follow-up questions
+      const recentReport = [...messages].reverse().find((m) => m.report)?.report
+
+      // Detect if this is a follow-up question about a report
+      const isFollowUpQuestion =
+        recentReport &&
+        (prompt.toLowerCase().includes("candidate") ||
+          prompt.toLowerCase().includes("applicant") ||
+          prompt.toLowerCase().includes("compare") ||
+          prompt.toLowerCase().includes("tell me more") ||
+          prompt.toLowerCase().includes("top") ||
+          prompt.toLowerCase().includes("about"))
+
+      if (isFollowUpQuestion && recentReport) {
+        // This is a follow-up question about the report
+        const assistantMessage: Message = {
+          id: String(Date.now() + 1),
+          role: "assistant",
+          content: `I'd love to help with that! To dive into the details and answer questions about specific candidates, head over to the Candidates tab using the button above. There you can see full profiles, detailed reasoning, and compare candidates side-by-side.`,
+        }
+        newMessages.push(assistantMessage)
+        setMessages((prev) => [...prev, assistantMessage])
+      } else {
+        // Generate a new custom report
+        const jobTitle = jobs.find((j) => j.id === jobId)?.title ?? "this job"
+        const reportName = `${jobTitle} - ${prompt.slice(0, 50)}${prompt.length > 50 ? '...' : ''}`
+        
+        const response = await generateCustomReport({
+          company_id: companyId,
+          job_id: jobId.trim(),
+          report_name: reportName,
+          custom_prompt: prompt,
+        })
+
+        const topNames = response.top_candidates
+          .slice(0, 3)
+          .map((c) => c.user_name || "Unknown")
+          .join(", ")
+        
+        // Create natural response based on number of candidates
+        let responseText = ""
+        if (response.total_scored === 0) {
+          responseText = `I couldn't find any candidates for this role. Try adjusting your criteria or check if there are applicants in the system.`
+        } else if (response.total_scored === 1) {
+          responseText = `Found 1 candidate who matches your criteria. Check out the report below to see the details!`
+        } else if (topNames && response.total_scored <= 3) {
+          responseText = `I found ${response.total_scored} candidates who fit what you're looking for. Top picks: ${topNames}. Click below to see the full breakdown.`
+        } else if (topNames) {
+          responseText = `Great! I ranked ${response.total_scored} candidates based on your criteria. Your top matches are ${topNames}. Check out the report below for the complete ranking and detailed scores.`
+        } else {
+          responseText = `I've ranked ${response.total_scored} candidates for you. Click the button below to see the full report with scores and reasoning.`
+        }
+        
+        const assistantMessage: Message = {
+          id: String(Date.now() + 1),
+          role: "assistant",
+          content: responseText,
+          report: {
+            report_id: response.report_id,
+            report_name: response.report_name,
+            custom_prompt: response.custom_prompt,
+            total_scored: response.total_scored,
+          },
+        }
+        newMessages.push(assistantMessage)
+        setMessages((prev) => [...prev, assistantMessage])
       }
-      newMessages.push(assistantMessage)
-      setMessages((prev) => [...prev, assistantMessage])
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Failed to fetch candidates"
+      const msg = err instanceof Error ? err.message : "Failed to generate report"
       setError(msg)
       const errorMessage: Message = {
         id: String(Date.now() + 1),
         role: "assistant",
-        content: `Request failed: ${msg}`,
+        content: `Oops, something went wrong: ${msg}. Mind trying that again?`,
       }
       newMessages.push(errorMessage)
       setMessages((prev) => [...prev, errorMessage])
@@ -231,7 +294,7 @@ export default function AgentPage() {
             AI Recruiting Agent
           </h1>
           <p className="mt-1 text-muted-foreground">
-            Recruiter chat for searching top candidates and resuming prior conversations.
+            Chat with your AI assistant to find the best candidates for your roles.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -291,6 +354,40 @@ export default function AgentPage() {
                   >
                     {message.content}
                   </div>
+
+                  {message.report && (
+                    <Card className="mt-3 border-2 border-primary/20">
+                      <CardHeader className="pb-3">
+                        <CardTitle className="flex items-center gap-2 text-base">
+                          <FileText className="h-5 w-5 text-primary" />
+                          Report Generated
+                        </CardTitle>
+                      </CardHeader>
+                      <CardContent className="space-y-3">
+                        <div>
+                          <p className="text-sm font-medium text-foreground">{message.report.report_name}</p>
+                          <p className="mt-1 text-xs text-muted-foreground">
+                            {message.report.total_scored} candidates scored
+                          </p>
+                        </div>
+                        <div className="rounded-lg bg-secondary/50 p-3">
+                          <p className="text-xs font-medium text-foreground/80">Custom Criteria:</p>
+                          <p className="mt-1 text-xs text-muted-foreground leading-relaxed">
+                            {message.report.custom_prompt}
+                          </p>
+                        </div>
+                        <Button
+                          className="w-full gap-2"
+                          onClick={() => {
+                            window.location.href = `/company/candidates?report=${message.report!.report_id}`
+                          }}
+                        >
+                          <FileText className="h-4 w-4" />
+                          View Report in Candidates Tab
+                        </Button>
+                      </CardContent>
+                    </Card>
+                  )}
 
                   {message.candidates && (
                     <div className="space-y-2">
@@ -354,7 +451,7 @@ export default function AgentPage() {
                 </div>
                 <div className="flex items-center gap-2 rounded-xl bg-secondary px-4 py-3">
                   <span className="text-sm text-muted-foreground">
-                    Reading resumes and ranking candidates
+                    Analyzing candidates...
                   </span>
                   <span className="flex gap-1">
                     <span className="h-1.5 w-1.5 rounded-full bg-muted-foreground/60 animate-bounce [animation-delay:0ms]" />
@@ -479,3 +576,13 @@ export default function AgentPage() {
     </DashboardShell>
   )
 }
+
+function AgentPageWrapper() {
+  return (
+    <Suspense fallback={<div className="p-8">Loading...</div>}>
+      <AgentPage />
+    </Suspense>
+  )
+}
+
+export default AgentPageWrapper
