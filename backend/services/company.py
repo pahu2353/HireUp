@@ -128,6 +128,63 @@ def create_job_posting(job_data: Dict) -> str:
     return job_id
 
 
+def update_job_posting(job_data: Dict) -> Dict[str, Any]:
+    company_id = job_data.get("company_id")
+    if not database.get_company_by_id(company_id):
+        raise HTTPException(status_code=404, detail="Company not found")
+
+    job_id = str(job_data.get("job_id", "")).strip()
+    if not job_id:
+        raise HTTPException(status_code=400, detail="job_id is required")
+
+    skills = job_data.get("skills", [])
+    if not isinstance(skills, list):
+        raise HTTPException(status_code=400, detail="skills must be a list")
+    cleaned_skills = [str(skill).strip() for skill in skills if str(skill).strip()]
+    if len(cleaned_skills) < 3:
+        raise HTTPException(status_code=400, detail="At least 3 skills are required")
+
+    job_title = str(job_data.get("title", "")).strip()
+    if not job_title:
+        raise HTTPException(status_code=400, detail="title is required")
+
+    job_description = str(job_data.get("description", "")).strip()
+    if not job_description:
+        raise HTTPException(status_code=400, detail="description is required")
+
+    updated = database.update_job_for_company(
+        company_id=company_id,
+        job_id=job_id,
+        title=job_title,
+        description=job_description,
+        skills=json.dumps(cleaned_skills),
+        location=str(job_data.get("location", "Remote")).strip() or "Remote",
+        salary_range=str(job_data.get("salary_range", "TBD")).strip() or "TBD",
+    )
+    if not updated:
+        raise HTTPException(status_code=404, detail="Job not found for company")
+
+    try:
+        updated["skills"] = json.loads(updated.get("skills", "[]"))
+    except Exception:
+        updated["skills"] = []
+    _add_activity(company_id, "Job posting updated", f"{job_title} details were updated.")
+    return updated
+
+
+def delete_job_posting(company_id: str, job_id: str) -> Dict[str, Any]:
+    if not database.get_company_by_id(company_id):
+        raise HTTPException(status_code=404, detail="Company not found")
+    if not job_id:
+        raise HTTPException(status_code=400, detail="job_id is required")
+
+    closed = database.close_job_for_company(company_id=company_id, job_id=job_id)
+    if not closed:
+        raise HTTPException(status_code=404, detail="Job not found for company")
+    _add_activity(company_id, "Job posting closed", f"{closed.get('title', 'Job')} was closed.")
+    return closed
+
+
 def _rank_candidates(prompt: str, candidates: List[Dict]) -> List[Dict]:
     """Local fallback ranker using both skills and resume text."""
     stop_words = {

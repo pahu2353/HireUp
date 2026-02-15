@@ -49,6 +49,8 @@ function getStatusColor(status: string): string {
       return "bg-green-500/10 text-green-600 dark:text-green-400"
     case "rejected":
       return "bg-red-500/10 text-red-600 dark:text-red-400"
+    case "closed":
+      return "bg-secondary text-muted-foreground"
     default:
       return "bg-secondary text-muted-foreground"
   }

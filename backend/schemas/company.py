@@ -13,6 +13,21 @@ class CreateJobPostingRequest(BaseModel):
     salary_range: str = "TBD"
 
 
+class UpdateJobPostingRequest(BaseModel):
+    company_id: str
+    job_id: str
+    title: str
+    description: str
+    skills: List[str] = Field(min_length=3)
+    location: str = "Remote"
+    salary_range: str = "TBD"
+
+
+class DeleteJobPostingRequest(BaseModel):
+    company_id: str
+    job_id: str
+
+
 class TopCandidatesRequest(BaseModel):
     job_id: str
     prompt: str

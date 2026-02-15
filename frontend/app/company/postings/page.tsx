@@ -22,9 +22,15 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
-import { Plus, Users } from "lucide-react"
+import { Plus, Trash2, Users } from "lucide-react"
 import { getAuth } from "@/lib/api"
-import { createCompanyJobPosting, getCompanyApplicants, getCompanyJobs } from "@/lib/company-api"
+import {
+  createCompanyJobPosting,
+  deleteCompanyJobPosting,
+  getCompanyApplicants,
+  getCompanyJobs,
+  updateCompanyJobPosting,
+} from "@/lib/company-api"
 
 interface CompanyPostingView {
   id: string
@@ -50,6 +56,29 @@ export default function PostingsPage() {
   const [error, setError] = useState("")
   const [createModalError, setCreateModalError] = useState("")
   const [isCreating, setIsCreating] = useState(false)
+  const [editOpen, setEditOpen] = useState(false)
+  const [editModalError, setEditModalError] = useState("")
+  const [isSavingEdit, setIsSavingEdit] = useState(false)
+  const [isDeleting, setIsDeleting] = useState(false)
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false)
+  const [pendingDeletePosting, setPendingDeletePosting] = useState<CompanyPostingView | null>(null)
+  const [deleteModalError, setDeleteModalError] = useState("")
+  const [selectedPostingId, setSelectedPostingId] = useState("")
+  const [editTitle, setEditTitle] = useState("")
+  const [editLocation, setEditLocation] = useState("Remote")
+  const [editSalary, setEditSalary] = useState("")
+  const [editDescription, setEditDescription] = useState("")
+  const [editRequirements, setEditRequirements] = useState("")
+
+  const parseSkills = (value: string) =>
+    value
+      .split(",")
+      .map((r) => r.trim())
+      .filter(Boolean)
+  const createSkillsCount = parseSkills(newRequirements).length
+  const editSkillsCount = parseSkills(editRequirements).length
+  const createCanSubmit = Boolean(newTitle.trim() && newDescription.trim() && createSkillsCount >= 3)
+  const editCanSubmit = Boolean(editTitle.trim() && editDescription.trim() && editSkillsCount >= 3)
 
   const loadCompanyData = async (id: string) => {
     const [jobsRes, applicantsRes] = await Promise.all([
@@ -70,7 +99,7 @@ export default function PostingsPage() {
       requirements: Array.isArray(job.skills) ? job.skills : [],
       applicantCount: applicantCounts[job.id] ?? 0,
       status: job.status || "open",
-    }))
+    })).filter((job) => job.status !== "closed")
     setPostings(mapped)
   }
 
@@ -92,10 +121,7 @@ export default function PostingsPage() {
     setCreateModalError("")
     const title = newTitle.trim()
     const description = newDescription.trim()
-    const requirements = newRequirements
-      .split(",")
-      .map((r) => r.trim())
-      .filter(Boolean)
+    const requirements = parseSkills(newRequirements)
 
     if (!title) {
       setCreateModalError("Job title is required.")
@@ -134,6 +160,89 @@ export default function PostingsPage() {
       setCreateModalError(e instanceof Error ? e.message : "Failed to create posting")
     } finally {
       setIsCreating(false)
+    }
+  }
+
+  const openEditModal = (posting: CompanyPostingView) => {
+    setSelectedPostingId(posting.id)
+    setEditTitle(posting.title || "")
+    setEditLocation(posting.location || "Remote")
+    setEditSalary(posting.salary || "")
+    setEditDescription(posting.description || "")
+    setEditRequirements((posting.requirements || []).join(", "))
+    setEditModalError("")
+    setEditOpen(true)
+  }
+
+  const handleSaveEdit = async () => {
+    if (!companyId || !selectedPostingId) return
+
+    setEditModalError("")
+    const title = editTitle.trim()
+    const description = editDescription.trim()
+    const requirements = parseSkills(editRequirements)
+
+    if (!title) {
+      setEditModalError("Job title is required.")
+      return
+    }
+    if (!description) {
+      setEditModalError("Description is required.")
+      return
+    }
+    if (requirements.length < 3) {
+      setEditModalError("Please add at least 3 required skills.")
+      return
+    }
+
+    setIsSavingEdit(true)
+    try {
+      await updateCompanyJobPosting({
+        company_id: companyId,
+        job_id: selectedPostingId,
+        title,
+        description,
+        skills: requirements,
+        location: editLocation.trim() || "Remote",
+        salary_range: editSalary.trim() || "TBD",
+      })
+      await loadCompanyData(companyId)
+      setEditModalError("")
+      setEditOpen(false)
+      setSelectedPostingId("")
+    } catch (e) {
+      setEditModalError(e instanceof Error ? e.message : "Failed to update posting")
+    } finally {
+      setIsSavingEdit(false)
+    }
+  }
+
+  const openDeleteConfirm = (posting: CompanyPostingView) => {
+    setPendingDeletePosting(posting)
+    setDeleteModalError("")
+    setDeleteConfirmOpen(true)
+  }
+
+  const deletePostingById = async () => {
+    if (!companyId || !pendingDeletePosting?.id) return
+    setIsDeleting(true)
+    try {
+      await deleteCompanyJobPosting({
+        company_id: companyId,
+        job_id: pendingDeletePosting.id,
+      })
+      await loadCompanyData(companyId)
+      if (selectedPostingId === pendingDeletePosting.id) {
+        setEditOpen(false)
+        setSelectedPostingId("")
+      }
+      setDeleteModalError("")
+      setDeleteConfirmOpen(false)
+      setPendingDeletePosting(null)
+    } catch (e) {
+      setDeleteModalError(e instanceof Error ? e.message : "Failed to delete posting")
+    } finally {
+      setIsDeleting(false)
     }
   }
 
@@ -230,8 +339,11 @@ export default function PostingsPage() {
                     if (createModalError) setCreateModalError("")
                   }}
                 />
+                <p className="text-xs text-muted-foreground">
+                  {createSkillsCount}/3 minimum skills selected
+                </p>
               </div>
-              <Button className="w-full" onClick={handleCreate} disabled={isCreating}>
+              <Button className="w-full" onClick={handleCreate} disabled={isCreating || !createCanSubmit}>
                 {isCreating ? "Creating..." : "Create Posting"}
               </Button>
             </div>
@@ -243,7 +355,11 @@ export default function PostingsPage() {
 
       <div className="space-y-4">
         {postings.map((posting) => (
-          <Card key={posting.id}>
+          <Card
+            key={posting.id}
+            onClick={() => openEditModal(posting)}
+            className="cursor-pointer transition-colors hover:border-primary/40"
+          >
             <CardHeader className="pb-3">
               <div className="flex items-start justify-between">
                 <div>
@@ -252,16 +368,33 @@ export default function PostingsPage() {
                     {posting.location} &middot; {posting.salary} &middot; {posting.type}
                   </CardDescription>
                 </div>
-                <Badge
-                  variant="secondary"
-                  className={
-                    posting.status === "open" || posting.status === "active"
-                      ? "bg-primary/10 text-primary"
-                      : "bg-secondary text-muted-foreground"
-                  }
-                >
-                  {posting.status}
-                </Badge>
+                <div className="flex items-center gap-2">
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="ghost"
+                    className="h-8 w-8 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      openDeleteConfirm(posting)
+                    }}
+                    disabled={isDeleting}
+                    aria-label="Delete job posting"
+                    title="Delete job posting"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                  <Badge
+                    variant="secondary"
+                    className={
+                      posting.status === "open" || posting.status === "active"
+                        ? "bg-primary/10 text-primary"
+                        : "bg-secondary text-muted-foreground"
+                    }
+                  >
+                    {posting.status}
+                  </Badge>
+                </div>
               </div>
             </CardHeader>
             <CardContent>
@@ -280,12 +413,158 @@ export default function PostingsPage() {
                   <Users className="h-3.5 w-3.5" />
                   {posting.applicantCount} matched applicants
                 </span>
+                <span className="text-xs">Click card to edit</span>
                 <span className="text-xs">Job ID: {posting.id}</span>
               </div>
             </CardContent>
           </Card>
         ))}
       </div>
+
+      <Dialog
+        open={editOpen}
+        onOpenChange={(next) => {
+          setEditOpen(next)
+          if (!next) {
+            setEditModalError("")
+            setSelectedPostingId("")
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-lg rounded-3xl">
+          <DialogHeader>
+            <DialogTitle>Edit Job Posting</DialogTitle>
+            <DialogDescription>
+              Update this posting and save changes to the backend.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 pt-2">
+            {editModalError ? <p className="text-sm text-destructive">{editModalError}</p> : null}
+            <div className="space-y-2">
+              <Label htmlFor="e-title">Job Title</Label>
+              <Input
+                id="e-title"
+                value={editTitle}
+                onChange={(e) => {
+                  setEditTitle(e.target.value)
+                  if (editModalError) setEditModalError("")
+                }}
+              />
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label htmlFor="e-location">Location</Label>
+                <Input
+                  id="e-location"
+                  value={editLocation}
+                  onChange={(e) => {
+                    setEditLocation(e.target.value)
+                    if (editModalError) setEditModalError("")
+                  }}
+                />
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="e-salary">Salary Range</Label>
+                <Input
+                  id="e-salary"
+                  value={editSalary}
+                  onChange={(e) => {
+                    setEditSalary(e.target.value)
+                    if (editModalError) setEditModalError("")
+                  }}
+                />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="e-desc">Description</Label>
+              <Textarea
+                id="e-desc"
+                value={editDescription}
+                onChange={(e) => {
+                  setEditDescription(e.target.value)
+                  if (editModalError) setEditModalError("")
+                }}
+                className="min-h-[100px]"
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="e-reqs">Required Skills (comma separated)</Label>
+              <Input
+                id="e-reqs"
+                value={editRequirements}
+                onChange={(e) => {
+                  setEditRequirements(e.target.value)
+                  if (editModalError) setEditModalError("")
+                }}
+              />
+              <p className="text-xs text-muted-foreground">
+                {editSkillsCount}/3 minimum skills selected
+              </p>
+            </div>
+            <Button
+              className="w-full"
+              onClick={handleSaveEdit}
+              disabled={isSavingEdit || isDeleting || !editCanSubmit}
+            >
+              {isSavingEdit ? "Saving..." : "Save Changes"}
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={deleteConfirmOpen}
+        onOpenChange={(next) => {
+          if (isDeleting) return
+          setDeleteConfirmOpen(next)
+          if (!next) {
+            setDeleteModalError("")
+            setPendingDeletePosting(null)
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-md rounded-3xl border-border/70">
+          <DialogHeader>
+            <DialogTitle>Close Job Posting?</DialogTitle>
+            <DialogDescription>
+              Delete this job posting? This will close it for applicants.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            {pendingDeletePosting ? (
+              <div className="rounded-2xl border border-border/70 bg-muted/30 p-3 text-sm">
+                <p className="font-medium text-foreground">{pendingDeletePosting.title}</p>
+                <p className="text-muted-foreground">{pendingDeletePosting.location}</p>
+              </div>
+            ) : null}
+            {deleteModalError ? <p className="text-sm text-destructive">{deleteModalError}</p> : null}
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full"
+                onClick={() => {
+                  setDeleteConfirmOpen(false)
+                  setPendingDeletePosting(null)
+                  setDeleteModalError("")
+                }}
+                disabled={isDeleting}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                className="w-full"
+                onClick={deletePostingById}
+                disabled={isDeleting}
+              >
+                {isDeleting ? "Closing..." : "Close Job"}
+              </Button>
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
     </DashboardShell>
   )
 }

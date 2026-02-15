@@ -94,8 +94,11 @@ def get_user_interviews(user_id: str) -> List[Dict]:
 def apply_job(user_id: str, job_id: str) -> Dict:
     if not database.get_user_by_id(user_id):
         raise HTTPException(status_code=404, detail="User not found")
-    if not database.get_job(job_id):
+    job = database.get_job(job_id)
+    if not job:
         raise HTTPException(status_code=404, detail="Job not found")
+    if (job.get("status") or "").lower() != "open":
+        raise HTTPException(status_code=400, detail="Job is closed")
     if database.check_application_exists(user_id, job_id):
         raise HTTPException(status_code=409, detail="Already applied to this job")
     return database.create_application(user_id, job_id)

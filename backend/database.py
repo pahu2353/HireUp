@@ -504,6 +504,68 @@ def get_jobs_by_company(company_id: str) -> List[Dict[str, Any]]:
     return [dict(row) for row in rows]
 
 
+def update_job_for_company(
+    company_id: str,
+    job_id: str,
+    title: str,
+    description: str,
+    skills: str,
+    location: str,
+    salary_range: str,
+) -> Optional[Dict[str, Any]]:
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT id FROM jobs WHERE id = ? AND company_id = ?",
+            (job_id, company_id),
+        ).fetchone()
+        if not row:
+            return None
+        conn.execute(
+            """
+            UPDATE jobs
+            SET title = ?, description = ?, skills = ?, location = ?, salary_range = ?
+            WHERE id = ? AND company_id = ?
+            """,
+            (title, description, skills, location, salary_range, job_id, company_id),
+        )
+        updated = conn.execute(
+            """
+            SELECT id, company_id, title, description, skills, location, salary_range, status, created_at
+            FROM jobs
+            WHERE id = ? AND company_id = ?
+            """,
+            (job_id, company_id),
+        ).fetchone()
+    return dict(updated) if updated else None
+
+
+def close_job_for_company(company_id: str, job_id: str) -> Optional[Dict[str, Any]]:
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT id FROM jobs WHERE id = ? AND company_id = ?",
+            (job_id, company_id),
+        ).fetchone()
+        if not row:
+            return None
+        conn.execute(
+            "UPDATE jobs SET status = 'closed' WHERE id = ? AND company_id = ?",
+            (job_id, company_id),
+        )
+        conn.execute(
+            "UPDATE applications SET status = 'closed' WHERE job_id = ?",
+            (job_id,),
+        )
+        updated = conn.execute(
+            """
+            SELECT id, company_id, title, description, skills, location, salary_range, status, created_at
+            FROM jobs
+            WHERE id = ? AND company_id = ?
+            """,
+            (job_id, company_id),
+        ).fetchone()
+    return dict(updated) if updated else None
+
+
 # --- Applications ---
 def create_application(user_id: str, job_id: str) -> Dict[str, Any]:
     app_id = str(uuid4())
@@ -526,7 +588,7 @@ def get_user_applications(user_id: str) -> List[Dict[str, Any]]:
         rows = conn.execute(
             """
             SELECT a.id, a.user_id, a.job_id, a.status, a.technical_score, a.created_at,
-                   j.title, j.location, j.salary_range, c.company_name
+                   j.title, j.location, j.salary_range, j.status AS job_status, c.company_name
             FROM applications a
             LEFT JOIN jobs j ON a.job_id = j.id
             LEFT JOIN companies c ON j.company_id = c.id

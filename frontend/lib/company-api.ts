@@ -9,6 +9,21 @@ export interface CompanyJobPostingPayload {
   salary_range?: string
 }
 
+export interface UpdateCompanyJobPostingPayload {
+  company_id: string
+  job_id: string
+  title: string
+  description: string
+  skills: string[]
+  location?: string
+  salary_range?: string
+}
+
+export interface DeleteCompanyJobPostingPayload {
+  company_id: string
+  job_id: string
+}
+
 export interface TopCandidate {
   user_id: string
   name?: string
@@ -107,6 +122,14 @@ async function putJson<T>(path: string, payload: unknown): Promise<T> {
 
 export async function createCompanyJobPosting(payload: CompanyJobPostingPayload) {
   return postJson<{ status: string; job_id: string }>("/create-job-posting", payload)
+}
+
+export async function updateCompanyJobPosting(payload: UpdateCompanyJobPostingPayload) {
+  return putJson<{ status: string; job: CompanyJob }>("/update-job-posting", payload)
+}
+
+export async function deleteCompanyJobPosting(payload: DeleteCompanyJobPostingPayload) {
+  return postJson<{ status: string; job: CompanyJob }>("/delete-job-posting", payload)
 }
 
 export async function getTopCandidates(

@@ -3,6 +3,8 @@ from fastapi import APIRouter
 
 from schemas.company import (
     CreateJobPostingRequest,
+    UpdateJobPostingRequest,
+    DeleteJobPostingRequest,
     TopCandidatesRequest,
     SubmitIntervieweeListRequest,
     SubmitIntervieweeFeedbackRequest,
@@ -19,6 +21,18 @@ router = APIRouter(tags=["companies"])
 def create_job_posting(payload: CreateJobPostingRequest):
     job_id = company_service.create_job_posting(payload.model_dump())
     return {"status": "ok", "job_id": job_id}
+
+
+@router.put("/update-job-posting")
+def update_job_posting(payload: UpdateJobPostingRequest):
+    job = company_service.update_job_posting(payload.model_dump())
+    return {"status": "ok", "job": job}
+
+
+@router.post("/delete-job-posting")
+def delete_job_posting(payload: DeleteJobPostingRequest):
+    job = company_service.delete_job_posting(company_id=payload.company_id, job_id=payload.job_id)
+    return {"status": "ok", "job": job}
 
 
 @router.get("/get-company-jobs")
