@@ -321,7 +321,7 @@ export default function CandidatesPage() {
 
       <Card className="mb-4">
         <CardContent className="pt-6">
-          <div className="grid gap-4 md:grid-cols-5">
+          <div className="grid gap-4 md:grid-cols-4">
             <div className="space-y-2 md:col-span-2">
               <Label htmlFor="job-select">Job posting</Label>
               <Select
@@ -358,6 +358,15 @@ export default function CandidatesPage() {
             </div>
 
             <div className="space-y-2">
+              <Label htmlFor="load-btn" className="invisible">Load</Label>
+              <Button id="load-btn" onClick={loadApplicants} disabled={isLoading || !companyId} className="w-full">
+                {isLoading ? "Loading..." : "Load Applicants"}
+              </Button>
+            </div>
+          </div>
+
+          <div className="mt-4">
+            <div className="space-y-2">
               <Label htmlFor="report-select">Previous reports</Label>
               <Select value={selectedReportId} onValueChange={setSelectedReportId}>
                 <SelectTrigger id="report-select">
@@ -371,12 +380,6 @@ export default function CandidatesPage() {
                   ))}
                 </SelectContent>
               </Select>
-            </div>
-
-            <div className="flex items-end">
-              <Button onClick={loadApplicants} disabled={isLoading || !companyId} className="w-full">
-                {isLoading ? "Loading..." : "Load Applicants"}
-              </Button>
             </div>
           </div>
         </CardContent>
