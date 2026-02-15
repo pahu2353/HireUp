@@ -248,7 +248,7 @@ def build_figure(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Interactive 3D visualizer for two-tower embeddings")
-    parser.add_argument("--vecdb", default="two-tower/two_tower_vecdb.sqlite", help="Path to vecdb sqlite file")
+    parser.add_argument("--vecdb", default="two-tower/most_run_two_tower_vecdb.sqlite", help="Path to vecdb sqlite file")
     parser.add_argument("--out", default="embedding_visualizer/embeddings_3d.html", help="Output HTML path")
     parser.add_argument("--clusters", type=int, default=10, help="Number of KMeans clusters")
     parser.add_argument("--edge-k", type=int, default=0, help="Local neighbor edges per point (0 to disable)")

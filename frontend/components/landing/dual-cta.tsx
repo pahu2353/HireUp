@@ -25,7 +25,7 @@ export function DualCTA() {
             </h3>
             <p className="mt-3 text-muted-foreground leading-relaxed">
               Post a job and let our two-tower model cut 2,000 applicants down
-              to 50 great fits. Then use our AI agent to analyze and rank them
+              to 50 great fits. Then use Iris to analyze and rank them
               based on exactly what you need.
             </p>
             <ul className="mt-6 space-y-3">

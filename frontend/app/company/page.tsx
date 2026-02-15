@@ -10,7 +10,7 @@ import { CompanyDashboardResponse, getCompanyDashboard } from "@/lib/company-api
 const statConfig = [
   { label: "Active Postings", key: "active_postings", icon: FileText },
   { label: "Total Applicants", key: "total_applicants", icon: Users },
-  { label: "AI Agent Queries", key: "ai_agent_queries", icon: MessageSquare },
+  { label: "Iris Queries", key: "ai_agent_queries", icon: MessageSquare },
   { label: "Interview Rate", key: "interview_rate_percent", icon: TrendingUp },
 ] as const
 

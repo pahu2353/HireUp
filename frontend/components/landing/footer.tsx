@@ -1,13 +1,12 @@
 import Link from "next/link"
+import { BrandLogo } from "@/components/brand/logo"
 
 export function Footer() {
   return (
     <footer className="px-6 pb-12 pt-8">
       <div className="app-shell mx-auto flex max-w-7xl flex-col items-center justify-between gap-6 px-6 py-6 md:flex-row md:px-8">
         <div className="flex items-center gap-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-accent">
-            <span className="text-xs font-bold text-primary-foreground">H</span>
-          </div>
+          <BrandLogo size={32} className="h-8 w-8" />
           <span className="text-sm font-semibold tracking-tight text-foreground">HireUp</span>
         </div>
         <div className="flex gap-8">

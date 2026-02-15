@@ -131,7 +131,7 @@ function AgentPageContent() {
   useEffect(() => {
     const auth = getAuth()
     if (!auth || auth.accountType !== "company") {
-      setError("Log in as a company account to use the recruiting agent.")
+      setError("Log in as a company account to use Iris.")
       return
     }
     setCompanyId(auth.id)
@@ -376,10 +376,10 @@ function AgentPageContent() {
         <div>
           <h1 className="flex items-center gap-2 text-2xl font-bold text-foreground">
             <Sparkles className="h-6 w-6 text-primary" />
-            AI Recruiting Agent
+            Iris
           </h1>
           <p className="mt-1 text-muted-foreground">
-            Chat with your AI assistant to find the best candidates for your roles.
+            Chat with Iris to find, analyze, and rank the best candidates for your roles.
           </p>
         </div>
         <div className="flex items-center gap-2">
@@ -702,7 +702,7 @@ export default function AgentPage() {
     <Suspense
       fallback={
         <DashboardShell role="company">
-          <p className="text-sm text-muted-foreground">Loading recruiting agent...</p>
+          <p className="text-sm text-muted-foreground">Loading Iris...</p>
         </DashboardShell>
       }
     >

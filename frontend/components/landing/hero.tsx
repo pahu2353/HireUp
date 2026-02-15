@@ -4,7 +4,7 @@ import { ArrowRight, CheckCircle2 } from "lucide-react"
 
 const trustSignals = [
   "Two-tower matching for both sides of the market",
-  "AI recruiter agent with transparent reasoning",
+  "Iris recruiter agent with transparent reasoning",
   "Built to reduce hiring noise, not increase it",
 ]
 
@@ -20,14 +20,14 @@ export function Hero() {
           <div className="space-y-7">
             <div className="eyebrow">
               <span className="h-1.5 w-1.5 rounded-full bg-primary" />
-              YC-level recruiting velocity, minus the noise
+              Recruiting velocity, minus the noise
             </div>
 
             <h1 className="text-balance text-5xl font-semibold leading-[1.04] tracking-[-0.03em] text-foreground sm:text-6xl md:text-7xl">
-              Hire less.
+              Hire right,
               <br />
               <span className="bg-gradient-to-r from-foreground via-primary to-accent bg-clip-text text-transparent">
-                Hire right.
+                HireUp.
               </span>
             </h1>
 
@@ -65,7 +65,7 @@ export function Hero() {
             <div className="mt-8 grid grid-cols-3 gap-3">
               <MetricCard value="50x" label="less screening noise" />
               <MetricCard value="2-way" label="matching feedback" />
-              <MetricCard value="24/7" label="agent assistance" />
+              <MetricCard value="24/7" label="Iris assistance" />
             </div>
           </div>
         </div>

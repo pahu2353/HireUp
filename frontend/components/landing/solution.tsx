@@ -20,10 +20,10 @@ const solutions = [
   {
     icon: Bot,
     step: "03",
-    title: "AI Agent Recruiter",
+    title: "Iris Recruiting Copilot",
     description:
-      "An intelligent agent that parses validated applicant profiles, answers questions, and continuously searches for your ideal candidates.",
-    detail: "Because problems 1 and 2 are solved, the AI works with clean, trustworthy data.",
+      "Iris parses validated applicant profiles, answers recruiter questions, and continuously surfaces the best-fit candidates for each role.",
+    detail: "Because problems 1 and 2 are solved, Iris works with clean, trustworthy data.",
   },
 ]
 
@@ -38,7 +38,7 @@ export function Solution() {
           </h2>
           <p className="mt-5 max-w-2xl text-pretty text-lg leading-relaxed text-muted-foreground">
             HireUp combines constrained applications, two-tower matching, and
-            an AI recruiting copilot to keep teams moving fast without hiring
+            Iris, your AI recruiting copilot, to keep teams moving fast without hiring
             blind.
           </p>
         </div>

@@ -4,6 +4,7 @@ import Link from "next/link"
 import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { ThemeToggle } from "@/components/theme-toggle"
+import { BrandLogo } from "@/components/brand/logo"
 import { Menu, X } from "lucide-react"
 
 export function Navbar() {
@@ -13,9 +14,10 @@ export function Navbar() {
     <header className="fixed inset-x-0 top-0 z-50 px-4 pt-4 md:px-6">
       <nav className="app-shell mx-auto flex w-full max-w-7xl items-center justify-between px-4 py-3 md:px-5">
         <Link href="/" className="group inline-flex items-center gap-2.5">
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-accent shadow-sm transition-transform duration-200 group-hover:-translate-y-0.5">
-            <span className="text-sm font-bold text-primary-foreground">H</span>
-          </div>
+          <BrandLogo
+            size={36}
+            className="h-9 w-9 shadow-sm transition-transform duration-200 group-hover:-translate-y-0.5"
+          />
           <span className="text-base font-semibold tracking-tight text-foreground md:text-lg">
             HireUp
           </span>

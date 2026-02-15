@@ -7,7 +7,7 @@ import './globals.css'
 export const metadata: Metadata = {
   title: 'HireUp - Intelligent Job Matching',
   description:
-    'Stop spam applying. Start getting matched. HireUp uses a two-tower recommendation model and AI agents to connect the right talent with the right companies.',
+    'Stop spam applying. Start getting matched. HireUp uses a two-tower recommendation model and Iris, an AI recruiting copilot, to connect the right talent with the right companies.',
 }
 
 export const viewport: Viewport = {

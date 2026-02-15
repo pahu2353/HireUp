@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs"
 import { ThemeToggle } from "@/components/theme-toggle"
+import { BrandLogo } from "@/components/brand/logo"
 import { login, setAuth, type AccountType } from "@/lib/api"
 
 export default function LoginPage() {
@@ -22,9 +23,7 @@ export default function LoginPage() {
     <div className="relative flex min-h-screen gap-6 px-4 py-4 md:px-6 md:py-6">
       <div className="app-shell hidden w-1/2 flex-col justify-between bg-gradient-to-br from-card via-card to-primary/10 p-12 lg:flex">
         <Link href="/" className="flex items-center gap-2">
-          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-accent">
-            <span className="text-sm font-bold text-primary-foreground">H</span>
-          </div>
+          <BrandLogo size={36} className="h-9 w-9" />
           <span className="text-lg font-bold text-foreground">HireUp</span>
         </Link>
         <div>
@@ -51,11 +50,7 @@ export default function LoginPage() {
         <div className="app-shell w-full max-w-md p-6 md:p-8">
           <div className="mb-8 lg:hidden">
             <Link href="/" className="flex items-center gap-2">
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-accent">
-                <span className="text-sm font-bold text-primary-foreground">
-                  H
-                </span>
-              </div>
+              <BrandLogo size={32} className="h-8 w-8" />
               <span className="text-lg font-bold text-foreground">HireUp</span>
             </Link>
           </div>
