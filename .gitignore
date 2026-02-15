@@ -1,4 +1,6 @@
 */__pycache__
 backend/hireup.db
+*.db
+two-tower/resumes/
 venv/
 .venv/
