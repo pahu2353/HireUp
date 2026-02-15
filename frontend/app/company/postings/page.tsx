@@ -48,6 +48,7 @@ export default function PostingsPage() {
   const [newDescription, setNewDescription] = useState("")
   const [newRequirements, setNewRequirements] = useState("")
   const [error, setError] = useState("")
+  const [createModalError, setCreateModalError] = useState("")
   const [isCreating, setIsCreating] = useState(false)
 
   const loadCompanyData = async (id: string) => {
@@ -86,20 +87,35 @@ export default function PostingsPage() {
   }, [])
 
   const handleCreate = async () => {
-    if (!newTitle.trim() || !companyId) return
+    if (!companyId) return
 
-    setError("")
+    setCreateModalError("")
+    const title = newTitle.trim()
+    const description = newDescription.trim()
+    const requirements = newRequirements
+      .split(",")
+      .map((r) => r.trim())
+      .filter(Boolean)
+
+    if (!title) {
+      setCreateModalError("Job title is required.")
+      return
+    }
+    if (!description) {
+      setCreateModalError("Description is required.")
+      return
+    }
+    if (requirements.length < 3) {
+      setCreateModalError("Please add at least 3 required skills.")
+      return
+    }
+
     setIsCreating(true)
     try {
-      const requirements = newRequirements
-        .split(",")
-        .map((r) => r.trim())
-        .filter(Boolean)
-
       await createCompanyJobPosting({
         company_id: companyId,
-        title: newTitle.trim(),
-        description: newDescription.trim(),
+        title,
+        description,
         skills: requirements,
         location: newLocation.trim() || "Remote",
         salary_range: newSalary.trim() || "TBD",
@@ -112,9 +128,10 @@ export default function PostingsPage() {
       setNewSalary("")
       setNewDescription("")
       setNewRequirements("")
+      setCreateModalError("")
       setOpen(false)
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to create posting")
+      setCreateModalError(e instanceof Error ? e.message : "Failed to create posting")
     } finally {
       setIsCreating(false)
     }
@@ -129,7 +146,13 @@ export default function PostingsPage() {
             Create postings through the API and manage your open positions.
           </p>
         </div>
-        <Dialog open={open} onOpenChange={setOpen}>
+        <Dialog
+          open={open}
+          onOpenChange={(next) => {
+            setOpen(next)
+            if (!next) setCreateModalError("")
+          }}
+        >
           <DialogTrigger asChild>
             <Button disabled={!companyId}>
               <Plus className="mr-2 h-4 w-4" />
@@ -144,13 +167,17 @@ export default function PostingsPage() {
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-4 pt-2">
+              {createModalError ? <p className="text-sm text-destructive">{createModalError}</p> : null}
               <div className="space-y-2">
                 <Label htmlFor="j-title">Job Title</Label>
                 <Input
                   id="j-title"
                   placeholder="e.g., Full-Stack Engineer"
                   value={newTitle}
-                  onChange={(e) => setNewTitle(e.target.value)}
+                  onChange={(e) => {
+                    setNewTitle(e.target.value)
+                    if (createModalError) setCreateModalError("")
+                  }}
                 />
               </div>
               <div className="grid grid-cols-2 gap-4">
@@ -160,7 +187,10 @@ export default function PostingsPage() {
                     id="j-location"
                     placeholder="e.g., Remote"
                     value={newLocation}
-                    onChange={(e) => setNewLocation(e.target.value)}
+                    onChange={(e) => {
+                      setNewLocation(e.target.value)
+                      if (createModalError) setCreateModalError("")
+                    }}
                   />
                 </div>
                 <div className="space-y-2">
@@ -169,7 +199,10 @@ export default function PostingsPage() {
                     id="j-salary"
                     placeholder="e.g., $140k - $180k"
                     value={newSalary}
-                    onChange={(e) => setNewSalary(e.target.value)}
+                    onChange={(e) => {
+                      setNewSalary(e.target.value)
+                      if (createModalError) setCreateModalError("")
+                    }}
                   />
                 </div>
               </div>
@@ -179,7 +212,10 @@ export default function PostingsPage() {
                   id="j-desc"
                   placeholder="Role details and responsibilities"
                   value={newDescription}
-                  onChange={(e) => setNewDescription(e.target.value)}
+                  onChange={(e) => {
+                    setNewDescription(e.target.value)
+                    if (createModalError) setCreateModalError("")
+                  }}
                   className="min-h-[100px]"
                 />
               </div>
@@ -187,9 +223,12 @@ export default function PostingsPage() {
                 <Label htmlFor="j-reqs">Required Skills (comma separated)</Label>
                 <Input
                   id="j-reqs"
-                  placeholder="e.g., React, TypeScript, Python"
+                  placeholder="e.g., React, TypeScript, Python (minimum 3)"
                   value={newRequirements}
-                  onChange={(e) => setNewRequirements(e.target.value)}
+                  onChange={(e) => {
+                    setNewRequirements(e.target.value)
+                    if (createModalError) setCreateModalError("")
+                  }}
                 />
               </div>
               <Button className="w-full" onClick={handleCreate} disabled={isCreating}>

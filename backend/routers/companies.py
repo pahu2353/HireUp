@@ -8,6 +8,7 @@ from schemas.company import (
     SubmitIntervieweeFeedbackRequest,
     UpdateCompanyProfileRequest,
     UpdateApplicationStatusRequest,
+    AnalyzeCandidateSkillsRequest,
 )
 from services import company as company_service
 
@@ -102,3 +103,13 @@ def update_application_status(payload: UpdateApplicationStatusRequest):
         technical_score=payload.technical_score,
     )
     return {"status": "ok", "application": updated}
+
+
+@router.post("/analyze-candidate-skills")
+def analyze_candidate_skills(payload: AnalyzeCandidateSkillsRequest):
+    result = company_service.analyze_candidate_skills(
+        company_id=payload.company_id,
+        user_id=payload.user_id,
+        job_id=payload.job_id,
+    )
+    return {"status": "ok", "analysis": result}

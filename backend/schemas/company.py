@@ -1,14 +1,14 @@
 """Request/response schemas for company endpoints."""
 from typing import List
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class CreateJobPostingRequest(BaseModel):
     company_id: str
     title: str
     description: str
-    skills: List[str]
+    skills: List[str] = Field(min_length=3)
     location: str = "Remote"
     salary_range: str = "TBD"
 
@@ -45,3 +45,9 @@ class UpdateApplicationStatusRequest(BaseModel):
     application_id: str
     status: str
     technical_score: int | None = None
+
+
+class AnalyzeCandidateSkillsRequest(BaseModel):
+    company_id: str
+    user_id: str
+    job_id: str | None = None

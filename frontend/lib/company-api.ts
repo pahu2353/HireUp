@@ -76,6 +76,13 @@ export interface CompanyApplicant {
   technical_score: number | null
 }
 
+export interface CandidateSkillAnalysis {
+  mode: "general" | "job_specific"
+  source: "openai" | "fallback"
+  summary: string
+  skills: Array<{ name: string; score: number }>
+}
+
 async function postJson<T>(path: string, payload: unknown): Promise<T> {
   const res = await fetch(getApiUrl(path), {
     method: "POST",
@@ -171,4 +178,12 @@ export async function updateApplicationStatus(payload: {
   technical_score?: number
 }) {
   return postJson<{ status: string; application: CompanyApplicant }>("/update-application-status", payload)
+}
+
+export async function analyzeCandidateSkills(payload: {
+  company_id: string
+  user_id: string
+  job_id?: string
+}) {
+  return postJson<{ status: string; analysis: CandidateSkillAnalysis }>("/analyze-candidate-skills", payload)
 }

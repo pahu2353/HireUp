@@ -18,12 +18,21 @@ import {
 import { FileText } from "lucide-react"
 import { getAuth, getApiUrl } from "@/lib/api"
 import {
-  CompanyJob,
+  analyzeCandidateSkills,
+  CandidateSkillAnalysis,
   CompanyApplicant,
+  CompanyJob,
   getCompanyApplicants,
   getCompanyJobs,
   updateApplicationStatus,
 } from "@/lib/company-api"
+import {
+  PolarAngleAxis,
+  PolarGrid,
+  Radar,
+  RadarChart,
+  ResponsiveContainer,
+} from "recharts"
 
 const STATUS_LABEL: Record<string, string> = {
   submitted: "Submitted",
@@ -42,6 +51,11 @@ export default function CandidatesPage() {
   const [info, setInfo] = useState("")
   const [isLoading, setIsLoading] = useState(false)
   const [isUpdating, setIsUpdating] = useState<string | null>(null)
+  const [selectedCandidateId, setSelectedCandidateId] = useState<string>("")
+
+  const [analysisByCandidate, setAnalysisByCandidate] = useState<Record<string, CandidateSkillAnalysis>>({})
+  const [analysisLoadingFor, setAnalysisLoadingFor] = useState<string | null>(null)
+  const [detailsModalCandidate, setDetailsModalCandidate] = useState<CompanyApplicant | null>(null)
 
   const [resumeModalUser, setResumeModalUser] = useState<{ userId: string; name: string } | null>(null)
 
@@ -49,6 +63,7 @@ export default function CandidatesPage() {
   const [pendingApplicationId, setPendingApplicationId] = useState("")
   const [pendingStatus, setPendingStatus] = useState<"rejected_post_interview" | "offer" | "">("")
   const [technicalScore, setTechnicalScore] = useState("")
+  const [scoreModalError, setScoreModalError] = useState("")
 
   useEffect(() => {
     const auth = getAuth()
@@ -84,6 +99,33 @@ export default function CandidatesPage() {
       setError(e instanceof Error ? e.message : "Failed to load applicants")
     } finally {
       setIsLoading(false)
+    }
+  }
+
+  const loadCandidateAnalysis = async (candidate: CompanyApplicant) => {
+    if (!companyId) return
+    setError("")
+    setAnalysisLoadingFor(candidate.application_id)
+    try {
+      const analysisJobId = jobId || candidate.job_id
+      const res = await analyzeCandidateSkills({
+        company_id: companyId,
+        user_id: candidate.user_id,
+        job_id: analysisJobId || undefined,
+      })
+      setAnalysisByCandidate((prev) => ({ ...prev, [candidate.application_id]: res.analysis }))
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to analyze candidate")
+    } finally {
+      setAnalysisLoadingFor(null)
+    }
+  }
+
+  const openDetailsModal = (candidate: CompanyApplicant) => {
+    setSelectedCandidateId(candidate.application_id)
+    setDetailsModalCandidate(candidate)
+    if (!analysisByCandidate[candidate.application_id]) {
+      loadCandidateAnalysis(candidate)
     }
   }
 
@@ -126,16 +168,18 @@ export default function CandidatesPage() {
     setPendingApplicationId(applicationId)
     setPendingStatus(status)
     setTechnicalScore("")
+    setScoreModalError("")
     setScoreModalOpen(true)
   }
 
   const submitScoreModal = async () => {
     const score = Number(technicalScore)
     if (!Number.isInteger(score) || score < 1 || score > 10) {
-      setError("Technical score must be an integer from 1 to 10.")
+      setScoreModalError("Technical score must be an integer from 1 to 10.")
       return
     }
     if (!pendingApplicationId || !pendingStatus) return
+    setScoreModalError("")
     setScoreModalOpen(false)
     await updateStatus(pendingApplicationId, pendingStatus, score)
     setPendingApplicationId("")
@@ -189,7 +233,15 @@ export default function CandidatesPage() {
           const canMoveFromSubmitted = candidate.status === "submitted"
           const canMoveFromInProgress = candidate.status === "in_progress"
           return (
-            <Card key={candidate.application_id}>
+            <Card
+              key={candidate.application_id}
+              onClick={() => openDetailsModal(candidate)}
+              className={
+                selectedCandidateId === candidate.application_id
+                  ? "border-primary/50 hover:border-primary/60"
+                  : "hover:border-primary/30"
+              }
+            >
               <CardHeader className="pb-2">
                 <div className="flex items-center justify-between gap-3">
                   <div>
@@ -198,7 +250,18 @@ export default function CandidatesPage() {
                       {candidate.user_email} • {candidate.job_title}
                     </CardDescription>
                   </div>
-                  <Badge variant="secondary">{STATUS_LABEL[candidate.status] || candidate.status}</Badge>
+                  <div className="flex items-center gap-3">
+                    <button
+                      className="text-xs font-medium text-primary underline-offset-2 hover:underline"
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        openDetailsModal(candidate)
+                      }}
+                    >
+                      More details
+                    </button>
+                    <Badge variant="secondary">{STATUS_LABEL[candidate.status] || candidate.status}</Badge>
+                  </div>
                 </div>
               </CardHeader>
               <CardContent>
@@ -207,18 +270,19 @@ export default function CandidatesPage() {
                     size="sm"
                     variant="outline"
                     className="gap-1.5 text-xs"
-                    onClick={() =>
+                    onClick={(e) => {
+                      e.stopPropagation()
                       setResumeModalUser({
                         userId: candidate.user_id,
                         name: candidate.user_name || "Unknown",
                       })
-                    }
+                    }}
                   >
                     <FileText className="h-3.5 w-3.5" />
                     View Resume
                   </Button>
                 </div>
-                <div className="mb-3 flex flex-wrap gap-2">
+                <div className="mb-3 flex flex-wrap gap-2" onClick={(e) => e.stopPropagation()}>
                   {candidate.skills.map((skill, idx) => (
                     <Badge key={`${skill}-${idx}`} variant="secondary" className="text-xs">
                       {skill}
@@ -235,14 +299,20 @@ export default function CandidatesPage() {
                         size="sm"
                         variant="outline"
                         disabled={isUpdating === candidate.application_id}
-                        onClick={() => updateStatus(candidate.application_id, "rejected_pre_interview")}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          updateStatus(candidate.application_id, "rejected_pre_interview")
+                        }}
                       >
                         Reject
                       </Button>
                       <Button
                         size="sm"
                         disabled={isUpdating === candidate.application_id}
-                        onClick={() => updateStatus(candidate.application_id, "in_progress")}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          updateStatus(candidate.application_id, "in_progress")
+                        }}
                       >
                         Move to In Progress
                       </Button>
@@ -254,14 +324,20 @@ export default function CandidatesPage() {
                         size="sm"
                         variant="outline"
                         disabled={isUpdating === candidate.application_id}
-                        onClick={() => openScoreModal(candidate.application_id, "rejected_post_interview")}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          openScoreModal(candidate.application_id, "rejected_post_interview")
+                        }}
                       >
                         Reject
                       </Button>
                       <Button
                         size="sm"
                         disabled={isUpdating === candidate.application_id}
-                        onClick={() => openScoreModal(candidate.application_id, "offer")}
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          openScoreModal(candidate.application_id, "offer")
+                        }}
                       >
                         Offer
                       </Button>
@@ -273,6 +349,78 @@ export default function CandidatesPage() {
           )
         })}
       </div>
+
+      <Dialog
+        open={!!detailsModalCandidate}
+        onOpenChange={(open) => {
+          if (!open) {
+            setDetailsModalCandidate(null)
+            setSelectedCandidateId("")
+          }
+        }}
+      >
+        <DialogContent className="max-w-5xl max-h-[85vh] overflow-y-auto rounded-3xl">
+          <DialogHeader>
+            <DialogTitle>{detailsModalCandidate?.user_name || "Candidate"} Skill Snapshot</DialogTitle>
+            <DialogDescription>
+              {detailsModalCandidate
+                ? (detailsModalCandidate.job_id && jobId
+                    ? "Mode 2: Skills scored against selected job requirements"
+                    : "Mode 1: Skills scored against this candidate's applied job requirements")
+                : ""}
+            </DialogDescription>
+          </DialogHeader>
+          {detailsModalCandidate ? (
+            <>
+              {analysisLoadingFor === detailsModalCandidate.application_id ? (
+                <p className="text-sm text-muted-foreground">Analyzing candidate skills...</p>
+              ) : (
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                  <div className="rounded-2xl border border-border/60 bg-muted/20 p-3">
+                    <div className="h-[300px] w-full">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <RadarChart
+                          data={(analysisByCandidate[detailsModalCandidate.application_id]?.skills ?? [])
+                            .slice(0, 6)
+                            .map((s) => ({ skill: s.name, score: s.score }))}
+                        >
+                          <PolarGrid />
+                          <PolarAngleAxis dataKey="skill" tick={{ fontSize: 11 }} />
+                          <Radar
+                            name="Score"
+                            dataKey="score"
+                            stroke="hsl(var(--primary))"
+                            fill="hsl(var(--primary))"
+                            fillOpacity={0.45}
+                          />
+                        </RadarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  </div>
+                  <div className="space-y-2">
+                    {(analysisByCandidate[detailsModalCandidate.application_id]?.skills ?? [])
+                      .slice(0, 6)
+                      .map((item) => (
+                        <div
+                          key={item.name}
+                          className="rounded-2xl border border-border/70 bg-gradient-to-r from-primary/10 to-background p-3"
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm font-medium text-foreground">{item.name}</span>
+                            <span className="text-sm font-semibold text-primary">{item.score}/100</span>
+                          </div>
+                        </div>
+                      ))}
+                    <p className="pt-1 text-xs text-muted-foreground">
+                      {analysisByCandidate[detailsModalCandidate.application_id]?.summary || "No summary available."}
+                    </p>
+                  </div>
+                </div>
+              )}
+            </>
+          ) : null}
+        </DialogContent>
+      </Dialog>
 
       {/* Resume PDF Modal */}
       <Dialog open={!!resumeModalUser} onOpenChange={(open) => !open && setResumeModalUser(null)}>
@@ -296,7 +444,15 @@ export default function CandidatesPage() {
         open={scoreModalOpen}
         onOpenChange={(next) => {
           if (!next && pendingApplicationId && pendingStatus) {
-            setError("You must submit the technical score before closing this dialog.")
+            setScoreModalError("You must submit the technical score before closing this dialog.")
+            setScoreModalOpen(true)
+            return
+          }
+          if (!next) {
+            setScoreModalError("")
+            setPendingApplicationId("")
+            setPendingStatus("")
+            setTechnicalScore("")
           }
           setScoreModalOpen(next)
         }}
@@ -310,6 +466,7 @@ export default function CandidatesPage() {
             </DialogDescription>
           </DialogHeader>
           <div className="space-y-3">
+            {scoreModalError ? <p className="text-sm text-destructive">{scoreModalError}</p> : null}
             <Label htmlFor="tech-score">Technical score (1-10)</Label>
             <Input
               id="tech-score"
@@ -317,7 +474,10 @@ export default function CandidatesPage() {
               min={1}
               max={10}
               value={technicalScore}
-              onChange={(e) => setTechnicalScore(e.target.value)}
+              onChange={(e) => {
+                setTechnicalScore(e.target.value)
+                if (scoreModalError) setScoreModalError("")
+              }}
             />
             <Button onClick={submitScoreModal} className="w-full">
               Submit

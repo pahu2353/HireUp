@@ -8,7 +8,7 @@ import urllib.error
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Dict, List
+from typing import Any, Dict, List
 
 from fastapi import HTTPException
 
@@ -101,16 +101,30 @@ def create_job_posting(job_data: Dict) -> str:
         raise HTTPException(status_code=404, detail="Company not found")
 
     skills = job_data.get("skills", [])
-    skills_str = json.dumps(skills) if isinstance(skills, list) else str(skills)
+    if not isinstance(skills, list):
+        raise HTTPException(status_code=400, detail="skills must be a list")
+    cleaned_skills = [str(skill).strip() for skill in skills if str(skill).strip()]
+    if len(cleaned_skills) < 3:
+        raise HTTPException(status_code=400, detail="At least 3 skills are required")
+
+    job_title = str(job_data.get("title", "")).strip()
+    if not job_title:
+        raise HTTPException(status_code=400, detail="title is required")
+
+    job_description = str(job_data.get("description", "")).strip()
+    if not job_description:
+        raise HTTPException(status_code=400, detail="description is required")
+
+    skills_str = json.dumps(cleaned_skills)
     job_id = database.create_job(
         company_id=company_id,
-        title=job_data.get("title", ""),
-        description=job_data.get("description", ""),
+        title=job_title,
+        description=job_description,
         skills=skills_str,
         location=job_data.get("location", "Remote"),
         salary_range=job_data.get("salary_range", "TBD"),
     )
-    _add_activity(company_id, "New job posting live", f"{job_data.get('title', 'New role')} is now open.")
+    _add_activity(company_id, "New job posting live", f"{job_title or 'New role'} is now open.")
     return job_id
 
 
@@ -297,6 +311,118 @@ def _openai_rank_candidates(job: Dict, prompt: str, candidates: List[Dict]) -> L
     return merged
 
 
+def _openai_analyze_candidate_skills(
+    candidate: Dict[str, Any],
+    job: Dict[str, Any] | None,
+) -> Dict[str, Any]:
+    api_key = _read_env_value("OPENAI_API_KEY")
+    if not api_key:
+        raise RuntimeError("OPENAI_API_KEY not set")
+
+    mode = "job_specific" if job else "general"
+    job_skill_targets: List[str] = []
+    if job:
+        raw_job_skills = job.get("skills", "[]")
+        if isinstance(raw_job_skills, str):
+            try:
+                raw_job_skills = json.loads(raw_job_skills)
+            except Exception:
+                raw_job_skills = []
+        if isinstance(raw_job_skills, list):
+            job_skill_targets = [str(s).strip() for s in raw_job_skills if str(s).strip()]
+    system_msg = (
+        "You evaluate technical skills from resumes. "
+        "Return strict JSON only with this shape: "
+        '{"summary":"...", "skills":[{"name":"...","score":0}]}. '
+        "Scores must be integers 0-100."
+    )
+    user_msg = {
+        "mode": mode,
+        "candidate": {
+            "name": candidate.get("user_name", ""),
+            "skills": candidate.get("skills", []),
+            "resume_text": (candidate.get("resume_text") or "")[:12000],
+        },
+        "job": {
+            "title": (job or {}).get("title", ""),
+            "description": (job or {}).get("description", ""),
+            "skills": job_skill_targets,
+        },
+        "scoring_instruction": (
+            "If mode is job_specific, score ONLY the provided job.skills and do not invent additional skills. "
+            "If mode is general, prioritize strongest proven technical competencies."
+        ),
+    }
+
+    body = json.dumps(
+        {
+            "model": "gpt-5.2",
+            "temperature": 0.2,
+            "response_format": {"type": "json_object"},
+            "messages": [
+                {"role": "system", "content": system_msg},
+                {"role": "user", "content": json.dumps(user_msg)},
+            ],
+        }
+    ).encode("utf-8")
+
+    req = urllib.request.Request(
+        "https://api.openai.com/v1/chat/completions",
+        data=body,
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {api_key}",
+        },
+        method="POST",
+    )
+
+    try:
+        with urllib.request.urlopen(req, timeout=45) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        details = e.read().decode("utf-8", errors="ignore")
+        raise RuntimeError(f"OpenAI HTTP {e.code}: {details[:300]}")
+    except Exception as e:
+        raise RuntimeError(f"OpenAI request failed: {e}")
+
+    content = payload.get("choices", [{}])[0].get("message", {}).get("content", "")
+    parsed = _extract_json_blob(content)
+    skills = parsed.get("skills", [])
+    summary = str(parsed.get("summary", "")).strip()
+    if not isinstance(skills, list) or len(skills) == 0:
+        raise RuntimeError("OpenAI response missing skills list")
+
+    cleaned = []
+    for item in skills:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name", "")).strip()
+        if not name:
+            continue
+        try:
+            score = int(item.get("score", 0))
+        except Exception:
+            score = 0
+        cleaned.append({"name": name, "score": max(0, min(100, score))})
+    if not cleaned:
+        raise RuntimeError("OpenAI returned no usable skill scores")
+    if mode == "job_specific" and job_skill_targets:
+        allowed = {name.lower() for name in job_skill_targets}
+        filtered = [item for item in cleaned if item["name"].lower() in allowed]
+        by_name = {item["name"].lower(): item for item in filtered}
+        ordered: List[Dict[str, Any]] = []
+        for skill_name in job_skill_targets:
+            existing = by_name.get(skill_name.lower())
+            if existing:
+                ordered.append(existing)
+            else:
+                ordered.append({"name": skill_name, "score": 0})
+        cleaned = ordered
+    else:
+        cleaned.sort(key=lambda x: x["score"], reverse=True)
+    return {"summary": summary, "skills": cleaned[:7]}
+
+
 def _parse_limit_from_prompt(prompt: str) -> int | None:
     """Extract requested count from prompt, e.g. 'top 3', '5 applicants', 'best 10'."""
     import re
@@ -364,6 +490,62 @@ def get_top_candidates(job_id: str, prompt: str, limit: int | None = None) -> Di
         "ranking_source": ranking_source,
         "ranking_error": ranking_error,
     }
+
+
+def analyze_candidate_skills(company_id: str, user_id: str, job_id: str | None = None) -> Dict[str, Any]:
+    applicants = list_company_applicants(company_id, job_id=job_id)
+    candidate = next((a for a in applicants if a.get("user_id") == user_id), None)
+    if not candidate:
+        # fallback to all jobs for this company
+        applicants = list_company_applicants(company_id, job_id=None)
+        candidate = next((a for a in applicants if a.get("user_id") == user_id), None)
+    if not candidate:
+        raise HTTPException(status_code=404, detail="Candidate not found for company")
+
+    job = database.get_job(job_id) if job_id else None
+    mode = "job_specific" if job else "general"
+
+    try:
+        openai_result = _openai_analyze_candidate_skills(candidate, job)
+        return {
+            "mode": mode,
+            "source": "openai",
+            "summary": openai_result.get("summary", ""),
+            "skills": openai_result.get("skills", []),
+        }
+    except Exception:
+        # deterministic fallback
+        resume_text = (candidate.get("resume_text") or "").lower()
+        candidate_skills = [str(s) for s in (candidate.get("skills") or [])]
+        if mode == "job_specific":
+            job_skills = job.get("skills", "[]") if job else []
+            if isinstance(job_skills, str):
+                try:
+                    job_skills = json.loads(job_skills)
+                except Exception:
+                    job_skills = []
+            names = [str(s) for s in job_skills][:7] or candidate_skills[:7]
+        else:
+            names = candidate_skills[:7]
+        if not names:
+            names = ["Python", "APIs", "System Design", "Databases", "Testing"]
+        scored = []
+        for idx, name in enumerate(names):
+            base = 62 - idx * 3
+            hits = resume_text.count(name.lower())
+            score = min(100, max(35, base + hits * 6))
+            scored.append({"name": name, "score": score})
+        scored.sort(key=lambda x: x["score"], reverse=True)
+        return {
+            "mode": mode,
+            "source": "fallback",
+            "summary": (
+                "Local analysis based on resume text and inferred skill match."
+                if mode == "general"
+                else "Local analysis focused on skills relevant to the selected job."
+            ),
+            "skills": scored,
+        }
 
 
 def submit_interviewee_list(job_id: str, user_ids: List[str]) -> None:
