@@ -1,9 +1,11 @@
 """Company business logic."""
 from __future__ import annotations
 
+import importlib.util
 import json
 import os
 import re
+import sqlite3
 import urllib.error
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -11,6 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List
 
+import numpy as np
 from fastapi import HTTPException
 
 try:
@@ -24,6 +27,9 @@ _interview_lists: Dict[str, List[str]] = {}
 _interview_feedback: List[Dict] = []
 _agent_queries_by_company: Dict[str, int] = {}
 _activities_by_company: Dict[str, List[Dict[str, str]]] = {}
+
+_VECDB_PATH = Path(__file__).resolve().parents[2] / "two-tower" / "two_tower_vecdb.sqlite"
+_EMBED_INIT_PATH = Path(__file__).resolve().parents[2] / "two-tower" / "embedding_initializer.py"
 
 STATUS_SUBMITTED = "submitted"
 STATUS_REJECTED_PRE = "rejected_pre_interview"
@@ -56,6 +62,158 @@ def _add_activity(company_id: str, action: str, detail: str) -> None:
     _activities_by_company.setdefault(company_id, []).append(
         {"action": action, "detail": detail, "time": _utc_now_iso()}
     )
+
+
+def _normalize(v: np.ndarray) -> np.ndarray:
+    norm = float(np.linalg.norm(v))
+    if norm <= 1e-12:
+        return v.astype(np.float32)
+    return (v / norm).astype(np.float32)
+
+
+def _load_embedding_initializer_cls():
+    spec = importlib.util.spec_from_file_location("two_tower_embedding_initializer", _EMBED_INIT_PATH)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"Unable to load embedding initializer at {_EMBED_INIT_PATH}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.NewEmbeddingInitializer
+
+
+def _build_embedding_initializer():
+    try:
+        initializer_cls = _load_embedding_initializer_cls()
+        return initializer_cls(vecdb_path=_VECDB_PATH)
+    except Exception:
+        return None
+
+
+def _parse_skills(skills_raw: Any) -> List[str]:
+    if isinstance(skills_raw, list):
+        return [str(skill).strip() for skill in skills_raw if str(skill).strip()]
+    if isinstance(skills_raw, str):
+        try:
+            parsed = json.loads(skills_raw)
+            if isinstance(parsed, list):
+                return [str(skill).strip() for skill in parsed if str(skill).strip()]
+        except Exception:
+            return []
+    return []
+
+
+def _fetch_job_vector(job_id: str) -> np.ndarray | None:
+    if not _VECDB_PATH.exists() or not job_id:
+        return None
+    with sqlite3.connect(_VECDB_PATH) as conn:
+        row = conn.execute(
+            "SELECT vector_json FROM job_vectors WHERE id = ?",
+            (job_id,),
+        ).fetchone()
+    if not row:
+        return None
+    try:
+        return _normalize(np.array(json.loads(row[0]), dtype=np.float32))
+    except Exception:
+        return None
+
+
+def _fetch_user_vectors(user_ids: List[str]) -> Dict[str, np.ndarray]:
+    if not _VECDB_PATH.exists() or not user_ids:
+        return {}
+    placeholders = ",".join(["?"] * len(user_ids))
+    with sqlite3.connect(_VECDB_PATH) as conn:
+        rows = conn.execute(
+            f"SELECT id, vector_json FROM user_vectors WHERE id IN ({placeholders})",
+            tuple(user_ids),
+        ).fetchall()
+    vectors: Dict[str, np.ndarray] = {}
+    for row in rows:
+        try:
+            vectors[str(row[0])] = _normalize(np.array(json.loads(row[1]), dtype=np.float32))
+        except Exception:
+            continue
+    return vectors
+
+
+def _user_payload_for_initializer(user: Dict[str, Any] | None, app: Dict[str, Any] | None) -> Dict[str, Any]:
+    user = user or {}
+    app = app or {}
+    return {
+        "email": user.get("email") or app.get("user_email"),
+        "name": user.get("name") or app.get("user_name"),
+        "resume_text": user.get("resume_text") or user.get("resume") or app.get("resume_text") or "",
+        "objective": user.get("objective"),
+        "career_objective": user.get("career_objective"),
+        "interests": user.get("interests") or app.get("interests"),
+    }
+
+
+def _job_payload_for_initializer(job: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "company_id": job.get("company_id"),
+        "title": job.get("title"),
+        "description": job.get("description"),
+        "skills": _parse_skills(job.get("skills")),
+        "location": job.get("location"),
+        "salary_range": job.get("salary_range"),
+        "status": job.get("status"),
+    }
+
+
+def _cosine_to_unit_interval(score: float) -> float:
+    clamped = max(-1.0, min(1.0, score))
+    return (clamped + 1.0) / 2.0
+
+
+def _two_tower_score(user_vec: np.ndarray, job_vec: np.ndarray) -> float:
+    return _cosine_to_unit_interval(float(np.dot(user_vec, job_vec)))
+
+
+def _get_or_initialize_vectors_for_job(
+    job: Dict[str, Any],
+    app_by_user: Dict[str, Dict[str, Any]],
+) -> tuple[np.ndarray | None, Dict[str, np.ndarray]]:
+    job_id = str(job.get("id") or "")
+    if not job_id:
+        return None, {}
+
+    user_ids = [uid for uid in app_by_user.keys() if uid]
+    job_vec = _fetch_job_vector(job_id)
+    user_vecs = _fetch_user_vectors(user_ids)
+
+    if job_vec is not None and len(user_vecs) == len(user_ids):
+        return job_vec, user_vecs
+
+    initializer = _build_embedding_initializer()
+    if initializer is None:
+        return job_vec, user_vecs
+
+    if job_vec is None:
+        try:
+            initializer.initialize_new_job(
+                job_id=job_id,
+                job_payload=_job_payload_for_initializer(job),
+            )
+            job_vec = _fetch_job_vector(job_id)
+        except Exception:
+            job_vec = None
+
+    missing_user_ids = [uid for uid in user_ids if uid not in user_vecs]
+    for user_id in missing_user_ids:
+        user = database.get_user_by_id(user_id)
+        app = app_by_user.get(user_id)
+        try:
+            initializer.initialize_new_user(
+                user_id=user_id,
+                user_payload=_user_payload_for_initializer(user, app),
+            )
+        except Exception:
+            continue
+
+    if missing_user_ids:
+        user_vecs = _fetch_user_vectors(user_ids)
+
+    return job_vec, user_vecs
 
 
 def create_company(company_data: Dict) -> Dict:
@@ -955,6 +1113,8 @@ def _score_single_batch(
     if not candidate_pool:
         return 0
 
+    job_vec, user_vecs = _get_or_initialize_vectors_for_job(job, app_by_user)
+
     prompt = "Evaluate each candidate's fit for this role based solely on the job requirements. Score them independently — do not compare them to each other."
     try:
         ranked = _openai_rank_and_analyze_candidates(job, prompt, candidate_pool)
@@ -969,7 +1129,31 @@ def _score_single_batch(
         app = app_by_user.get(user_id)
         if not app:
             continue
-        score = int(item.get("score", 0))
+        try:
+            gpt_score = int(item.get("score", 0))
+        except Exception:
+            gpt_score = 0
+        gpt_score = max(0, min(100, gpt_score))
+        gpt_score_01 = gpt_score / 100.0
+
+        two_tower_score_01: float | None = None
+        if job_vec is not None:
+            user_vec = user_vecs.get(user_id)
+            if user_vec is not None:
+                two_tower_score_01 = _two_tower_score(user_vec, job_vec)
+
+        if two_tower_score_01 is None:
+            final_score_01 = gpt_score_01
+            blend_summary = f"GPT score {gpt_score}/100 used (two-tower unavailable)."
+        else:
+            final_score_01 = (gpt_score_01 + two_tower_score_01) / 2.0
+            blend_summary = (
+                f"Blended score = average(GPT {gpt_score_01:.2f}, two-tower {two_tower_score_01:.2f}) "
+                f"=> {final_score_01:.2f}."
+            )
+        final_score = int(round(max(0.0, min(1.0, final_score_01)) * 100))
+        base_reasoning = str(item.get("reasoning", "")).strip()
+        fit_reasoning = f"{blend_summary} {base_reasoning}".strip()
         
         # Store skill analysis if available
         skill_analysis_json = ""
@@ -983,8 +1167,8 @@ def _score_single_batch(
         
         database.update_application_fit_score(
             application_id=app["application_id"],
-            fit_score=max(0, min(100, score)),
-            fit_reasoning=str(item.get("reasoning", "")),
+            fit_score=final_score,
+            fit_reasoning=fit_reasoning,
             fit_scored_at=now_iso,
             skill_analysis=skill_analysis_json,
             skill_analysis_summary=skill_summary,

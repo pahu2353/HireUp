@@ -2,9 +2,16 @@
 from __future__ import annotations
 
 import base64
+import importlib.util
 import json
+import random
+import sqlite3
+import threading
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Dict, List
 
+import numpy as np
 from fastapi import HTTPException
 
 try:
@@ -17,6 +24,117 @@ except ImportError:
 
 # In-memory state (interviews). Applications and jobs are in DB.
 _interviews: Dict[str, List[Dict]] = {}
+_daily_job_pool_cache: Dict[tuple[str, str], List[str]] = {}
+_daily_job_pool_lock = threading.Lock()
+
+_VECDB_PATH = Path(__file__).resolve().parents[2] / "two-tower" / "two_tower_vecdb.sqlite"
+_EMBED_INIT_PATH = Path(__file__).resolve().parents[2] / "two-tower" / "embedding_initializer.py"
+
+
+def _normalize(v: np.ndarray) -> np.ndarray:
+    norm = float(np.linalg.norm(v))
+    if norm <= 1e-12:
+        return v.astype(np.float32)
+    return (v / norm).astype(np.float32)
+
+
+def _load_embedding_initializer_cls():
+    spec = importlib.util.spec_from_file_location("two_tower_embedding_initializer", _EMBED_INIT_PATH)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"Unable to load embedding initializer at {_EMBED_INIT_PATH}")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module.NewEmbeddingInitializer
+
+
+def _fetch_user_vector(user_id: str) -> np.ndarray | None:
+    if not _VECDB_PATH.exists():
+        return None
+    with sqlite3.connect(_VECDB_PATH) as conn:
+        row = conn.execute(
+            "SELECT vector_json FROM user_vectors WHERE id = ?",
+            (user_id,),
+        ).fetchone()
+    if not row:
+        return None
+    try:
+        return _normalize(np.array(json.loads(row[0]), dtype=np.float32))
+    except Exception:
+        return None
+
+
+def _fetch_job_vectors(job_ids: List[str]) -> Dict[str, np.ndarray]:
+    if not _VECDB_PATH.exists() or not job_ids:
+        return {}
+    placeholders = ",".join(["?"] * len(job_ids))
+    with sqlite3.connect(_VECDB_PATH) as conn:
+        rows = conn.execute(
+            f"SELECT id, vector_json FROM job_vectors WHERE id IN ({placeholders})",
+            tuple(job_ids),
+        ).fetchall()
+    vectors: Dict[str, np.ndarray] = {}
+    for row in rows:
+        try:
+            vectors[str(row[0])] = _normalize(np.array(json.loads(row[1]), dtype=np.float32))
+        except Exception:
+            continue
+    return vectors
+
+
+def _user_payload_for_initializer(user: Dict) -> Dict:
+    return {
+        "email": user.get("email"),
+        "name": user.get("name"),
+        "resume_text": user.get("resume_text") or user.get("resume") or "",
+        "objective": user.get("objective"),
+        "career_objective": user.get("career_objective"),
+        "interests": user.get("interests"),
+    }
+
+
+def _job_payload_for_initializer(job: Dict) -> Dict:
+    return {
+        "company_id": job.get("company_id"),
+        "title": job.get("title"),
+        "description": job.get("description"),
+        "skills": job.get("skills"),
+        "location": job.get("location"),
+        "salary_range": job.get("salary_range"),
+        "status": job.get("status"),
+    }
+
+
+def _today_utc_key() -> str:
+    return datetime.now(timezone.utc).date().isoformat()
+
+
+def _get_or_create_daily_job_pool(user_id: str, available_job_ids: List[str], sample_size: int) -> List[str]:
+    if sample_size <= 0 or not available_job_ids:
+        return []
+
+    today = _today_utc_key()
+    available_set = set(available_job_ids)
+    cache_key = (user_id, today)
+
+    with _daily_job_pool_lock:
+        # Drop stale day entries to keep memory bounded.
+        stale_keys = [k for k in _daily_job_pool_cache.keys() if k[1] != today]
+        for k in stale_keys:
+            _daily_job_pool_cache.pop(k, None)
+
+        cached = _daily_job_pool_cache.get(cache_key, [])
+        # Keep existing ordering for stability, remove jobs no longer open.
+        pool = [jid for jid in cached if jid in available_set]
+
+        if len(pool) < sample_size:
+            remaining = [jid for jid in sorted(available_set) if jid not in set(pool)]
+            rng = random.Random(f"{user_id}:{today}")
+            rng.shuffle(remaining)
+            pool.extend(remaining[: max(0, sample_size - len(pool))])
+
+        pool = pool[:sample_size]
+        _daily_job_pool_cache[cache_key] = pool
+        return pool
 
 
 def create_user(user_data: Dict) -> Dict:
@@ -75,8 +193,10 @@ def create_session(login_data: Dict) -> Dict:
 
 
 def get_matched_jobs(user_id: str) -> List[Dict]:
-    if not database.get_user_by_id(user_id):
+    user = database.get_user_by_id(user_id)
+    if not user:
         raise HTTPException(status_code=404, detail="User not found")
+
     all_jobs = database.get_all_jobs(status="open")
     for job in all_jobs:
         try:
@@ -84,7 +204,69 @@ def get_matched_jobs(user_id: str) -> List[Dict]:
         except Exception:
             job["skills"] = []
         job["applied"] = database.check_application_exists(user_id, job["id"])
-    return all_jobs
+
+    if not all_jobs:
+        return []
+
+    sample_size = min(30, len(all_jobs))
+    jobs_by_id = {str(job["id"]): job for job in all_jobs if job.get("id")}
+    sampled_job_ids = _get_or_create_daily_job_pool(
+        user_id=user_id,
+        available_job_ids=list(jobs_by_id.keys()),
+        sample_size=sample_size,
+    )
+    sampled_jobs = [jobs_by_id[jid] for jid in sampled_job_ids if jid in jobs_by_id]
+
+    user_vec = _fetch_user_vector(user_id)
+    job_vecs = _fetch_job_vectors(sampled_job_ids)
+
+    initializer = None
+    if user_vec is None or len(job_vecs) < len(sampled_job_ids):
+        try:
+            NewEmbeddingInitializer = _load_embedding_initializer_cls()
+            initializer = NewEmbeddingInitializer(vecdb_path=_VECDB_PATH)
+        except Exception:
+            initializer = None
+
+    if user_vec is None and initializer is not None:
+        try:
+            initializer.initialize_new_user(user_id=user_id, user_payload=_user_payload_for_initializer(user))
+            user_vec = _fetch_user_vector(user_id)
+        except Exception:
+            user_vec = None
+
+    if initializer is not None:
+        missing_job_ids = [jid for jid in sampled_job_ids if jid not in job_vecs]
+        if missing_job_ids:
+            by_id = {str(job["id"]): job for job in sampled_jobs}
+            for jid in missing_job_ids:
+                job = by_id.get(jid)
+                if not job:
+                    continue
+                try:
+                    initializer.initialize_new_job(job_id=jid, job_payload=_job_payload_for_initializer(job))
+                except Exception:
+                    continue
+            job_vecs = _fetch_job_vectors(sampled_job_ids)
+
+    if user_vec is None:
+        # Fallback if vecdb/bootstrap is unavailable.
+        return sampled_jobs[:10]
+
+    scored_jobs = []
+    for job in sampled_jobs:
+        jid = str(job["id"])
+        j_vec = job_vecs.get(jid)
+        if j_vec is None:
+            continue
+        score = float(np.dot(user_vec, j_vec))
+        scored_jobs.append({**job, "vector_score": score})
+
+    if not scored_jobs:
+        return sampled_jobs[:10]
+
+    scored_jobs.sort(key=lambda x: x["vector_score"], reverse=True)
+    return scored_jobs[:10]
 
 
 def get_user_interviews(user_id: str) -> List[Dict]:
