@@ -9,6 +9,7 @@ import {
   LayoutDashboard,
   Briefcase,
   MessageSquare,
+  Plus,
   User,
   Building2,
   FileText,
@@ -105,6 +106,17 @@ export function DashboardShell({
 
         <main className="p-6 lg:p-8">{children}</main>
       </div>
+
+      {role === "company" ? (
+        <Link
+          href="/company/agent?new=1"
+          className="fixed bottom-6 right-6 z-50 flex h-14 w-14 items-center justify-center rounded-full border border-primary/30 bg-primary text-primary-foreground shadow-lg transition-all hover:scale-105 hover:bg-primary/90"
+          aria-label="New chat"
+          title="New chat"
+        >
+          <Plus className="h-5 w-5" />
+        </Link>
+      ) : null}
     </div>
   )
 }

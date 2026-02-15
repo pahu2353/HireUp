@@ -98,6 +98,7 @@ def init_db() -> None:
             CREATE TABLE IF NOT EXISTS agent_messages (
                 id TEXT PRIMARY KEY,
                 company_id TEXT NOT NULL,
+                chat_id TEXT NOT NULL,
                 role TEXT NOT NULL,
                 content TEXT NOT NULL,
                 candidates TEXT,
@@ -138,6 +139,12 @@ def init_db() -> None:
                 conn.execute(stmt)
             except sqlite3.OperationalError:
                 pass
+        try:
+            conn.execute("ALTER TABLE agent_messages ADD COLUMN chat_id TEXT")
+        except sqlite3.OperationalError:
+            pass
+        conn.execute("UPDATE agent_messages SET chat_id = 'legacy' WHERE chat_id IS NULL OR chat_id = ''")
+        conn.execute("CREATE INDEX IF NOT EXISTS idx_agent_messages_company_chat ON agent_messages(company_id, chat_id)")
 
 
 def hash_password(password: str) -> str:
@@ -770,6 +777,7 @@ def update_application_fit_score(
 # --- Agent Messages ---
 def save_agent_message(
     company_id: str,
+    chat_id: str,
     message_id: str,
     role: str,
     content: str,
@@ -779,14 +787,15 @@ def save_agent_message(
     with get_conn() as conn:
         conn.execute(
             """
-            INSERT OR REPLACE INTO agent_messages (id, company_id, role, content, candidates, ranking_source)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT OR REPLACE INTO agent_messages (id, company_id, chat_id, role, content, candidates, ranking_source)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
-            (message_id, company_id, role, content, candidates, ranking_source),
+            (message_id, company_id, chat_id, role, content, candidates, ranking_source),
         )
     return {
         "id": message_id,
         "company_id": company_id,
+        "chat_id": chat_id,
         "role": role,
         "content": content,
         "candidates": candidates,
@@ -794,20 +803,53 @@ def save_agent_message(
     }
 
 
-def get_agent_messages(company_id: str) -> List[Dict[str, Any]]:
+def get_agent_messages(company_id: str, chat_id: str | None = None) -> List[Dict[str, Any]]:
+    with get_conn() as conn:
+        if chat_id:
+            rows = conn.execute(
+                """
+                SELECT id, company_id, chat_id, role, content, candidates, ranking_source, created_at
+                FROM agent_messages
+                WHERE company_id = ? AND chat_id = ?
+                ORDER BY created_at ASC
+                """,
+                (company_id, chat_id),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                """
+                SELECT id, company_id, chat_id, role, content, candidates, ranking_source, created_at
+                FROM agent_messages
+                WHERE company_id = ?
+                ORDER BY created_at ASC
+                """,
+                (company_id,),
+            ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def clear_agent_messages(company_id: str, chat_id: str | None = None) -> None:
+    with get_conn() as conn:
+        if chat_id:
+            conn.execute("DELETE FROM agent_messages WHERE company_id = ? AND chat_id = ?", (company_id, chat_id))
+        else:
+            conn.execute("DELETE FROM agent_messages WHERE company_id = ?", (company_id,))
+
+
+def get_agent_chats(company_id: str) -> List[Dict[str, Any]]:
     with get_conn() as conn:
         rows = conn.execute(
             """
-            SELECT id, company_id, role, content, candidates, ranking_source, created_at
+            SELECT
+                chat_id,
+                MAX(created_at) AS updated_at,
+                COUNT(*) AS message_count,
+                MAX(CASE WHEN role = 'user' THEN content ELSE '' END) AS last_user_message
             FROM agent_messages
             WHERE company_id = ?
-            ORDER BY created_at ASC
+            GROUP BY chat_id
+            ORDER BY updated_at DESC
             """,
             (company_id,),
         ).fetchall()
     return [dict(row) for row in rows]
-
-
-def clear_agent_messages(company_id: str) -> None:
-    with get_conn() as conn:
-        conn.execute("DELETE FROM agent_messages WHERE company_id = ?", (company_id,))

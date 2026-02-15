@@ -64,8 +64,6 @@ def get_top_candidates(payload: TopCandidatesRequest):
     return {
         "job_id": payload.job_id,
         "top_candidates": result.get("top_candidates", []),
-        "ranking_source": result.get("ranking_source", "unknown"),
-        "ranking_error": result.get("ranking_error", ""),
     }
 
 
@@ -156,21 +154,36 @@ def analyze_candidate_skills(payload: AnalyzeCandidateSkillsRequest):
 
 class SaveAgentMessageRequest(BaseModel):
     company_id: str
+    chat_id: str
     message_id: str
     role: str
     content: str
     candidates: Optional[str] = "[]"
-    ranking_source: Optional[str] = ""
 
 
 class SaveAgentMessagesRequest(BaseModel):
     company_id: str
+    chat_id: str
     messages: List[SaveAgentMessageRequest]
 
 
+@router.get("/agent-chats")
+def get_agent_chats(company_id: str):
+    rows = database.get_agent_chats(company_id)
+    result = []
+    for row in rows:
+        result.append({
+            "chat_id": row.get("chat_id", ""),
+            "updated_at": row.get("updated_at", ""),
+            "message_count": int(row.get("message_count") or 0),
+            "last_message": row.get("last_user_message") or "",
+        })
+    return {"company_id": company_id, "chats": result}
+
+
 @router.get("/agent-messages")
-def get_agent_messages(company_id: str):
-    rows = database.get_agent_messages(company_id)
+def get_agent_messages(company_id: str, chat_id: Optional[str] = None):
+    rows = database.get_agent_messages(company_id, chat_id=chat_id)
     result = []
     for row in rows:
         candidates_raw = row.get("candidates") or "[]"
@@ -180,12 +193,12 @@ def get_agent_messages(company_id: str):
             candidates = []
         result.append({
             "id": row["id"],
+            "chat_id": row.get("chat_id") or "",
             "role": row["role"],
             "content": row["content"],
             "candidates": candidates,
-            "rankingSource": row.get("ranking_source") or "",
         })
-    return {"company_id": company_id, "messages": result}
+    return {"company_id": company_id, "chat_id": chat_id, "messages": result}
 
 
 @router.post("/agent-messages")
@@ -193,16 +206,16 @@ def save_agent_messages(payload: SaveAgentMessagesRequest):
     for msg in payload.messages:
         database.save_agent_message(
             company_id=msg.company_id,
+            chat_id=msg.chat_id,
             message_id=msg.message_id,
             role=msg.role,
             content=msg.content,
             candidates=msg.candidates or "[]",
-            ranking_source=msg.ranking_source or "",
         )
     return {"status": "ok", "count": len(payload.messages)}
 
 
 @router.delete("/agent-messages")
-def clear_agent_messages(company_id: str):
-    database.clear_agent_messages(company_id)
+def clear_agent_messages(company_id: str, chat_id: Optional[str] = None):
+    database.clear_agent_messages(company_id, chat_id=chat_id)
     return {"status": "ok"}

@@ -98,7 +98,7 @@ export interface CompanyApplicant {
 
 export interface CandidateSkillAnalysis {
   mode: "general" | "job_specific"
-  source: "openai" | "fallback" | "cached"
+  source: string
   summary: string
   skills: Array<{ name: string; score: number }>
 }
@@ -145,8 +145,6 @@ export async function getTopCandidates(
   return postJson<{
     job_id: string
     top_candidates: TopCandidate[]
-    ranking_source?: "openai" | "fallback" | "none" | "unknown"
-    ranking_error?: string
   }>("/get-top-candidates", {
     job_id: jobId,
     prompt,
@@ -236,41 +234,58 @@ export async function analyzeCandidateSkills(payload: {
 
 export interface AgentMessageRecord {
   id: string
+  chat_id: string
   role: "user" | "assistant"
   content: string
   candidates?: TopCandidate[]
-  rankingSource?: string
 }
 
-export async function getAgentMessages(companyId: string) {
-  const url = `${getApiUrl("/agent-messages")}?company_id=${encodeURIComponent(companyId)}`
+export interface AgentChatRecord {
+  chat_id: string
+  updated_at: string
+  message_count: number
+  last_message: string
+}
+
+export async function getAgentChats(companyId: string) {
+  const url = `${getApiUrl("/agent-chats")}?company_id=${encodeURIComponent(companyId)}`
   const res = await fetch(url)
   const data = await res.json().catch(() => ({}))
   if (!res.ok) throw new Error((data as { detail?: string }).detail ?? "Request failed")
-  return data as { company_id: string; messages: AgentMessageRecord[] }
+  return data as { company_id: string; chats: AgentChatRecord[] }
+}
+
+export async function getAgentMessages(companyId: string, chatId?: string) {
+  const qs = new URLSearchParams({ company_id: companyId })
+  if (chatId) qs.set("chat_id", chatId)
+  const url = `${getApiUrl("/agent-messages")}?${qs.toString()}`
+  const res = await fetch(url)
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error((data as { detail?: string }).detail ?? "Request failed")
+  return data as { company_id: string; chat_id?: string; messages: AgentMessageRecord[] }
 }
 
 export async function saveAgentMessages(
   companyId: string,
+  chatId: string,
   messages: Array<{
     message_id: string
     role: string
     content: string
     candidates?: string
-    ranking_source?: string
   }>,
 ) {
   return postJson<{ status: string; count: number }>("/agent-messages", {
     company_id: companyId,
-    messages: messages.map((m) => ({ company_id: companyId, ...m })),
+    chat_id: chatId,
+    messages: messages.map((m) => ({ company_id: companyId, chat_id: chatId, ...m })),
   })
 }
 
-export async function clearAgentMessages(companyId: string) {
-  const res = await fetch(
-    `${getApiUrl("/agent-messages")}?company_id=${encodeURIComponent(companyId)}`,
-    { method: "DELETE" },
-  )
+export async function clearAgentMessages(companyId: string, chatId?: string) {
+  const qs = new URLSearchParams({ company_id: companyId })
+  if (chatId) qs.set("chat_id", chatId)
+  const res = await fetch(`${getApiUrl("/agent-messages")}?${qs.toString()}`, { method: "DELETE" })
   const data = await res.json().catch(() => ({}))
   if (!res.ok) throw new Error((data as { detail?: string }).detail ?? "Request failed")
   return data
