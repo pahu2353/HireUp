@@ -61,19 +61,20 @@ export default function SignupPage() {
   }
 
   return (
-    <div className="relative flex min-h-screen">
+    <div className="relative flex min-h-screen gap-6 px-4 py-4 md:px-6 md:py-6">
       <div className="absolute right-4 top-4 z-10">
         <ThemeToggle />
       </div>
-      <div className="hidden w-1/2 flex-col justify-between bg-card p-12 lg:flex">
+      <div className="app-shell hidden w-1/2 flex-col justify-between bg-gradient-to-br from-card via-card to-chart-2/10 p-12 lg:flex">
         <Link href="/" className="flex items-center gap-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-primary/70">
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-accent">
             <span className="text-sm font-bold text-primary-foreground">H</span>
           </div>
           <span className="text-lg font-bold text-foreground">HireUp</span>
         </Link>
         <div>
-          <h2 className="text-3xl font-bold leading-tight text-foreground">
+          <p className="eyebrow mb-5">New Account</p>
+          <h2 className="text-4xl font-semibold leading-tight tracking-[-0.02em] text-foreground">
             Your next opportunity
             <br />
             <span className="bg-gradient-to-r from-primary to-destructive bg-clip-text text-transparent">is waiting.</span>
@@ -88,11 +89,11 @@ export default function SignupPage() {
         </p>
       </div>
 
-      <div className="flex w-full flex-col items-center justify-center px-6 py-12 lg:w-1/2">
-        <div className="w-full max-w-md">
+      <div className="flex w-full flex-col items-center justify-center py-8 lg:w-1/2">
+        <div className="app-shell w-full max-w-lg p-6 md:p-8">
           <div className="mb-8 lg:hidden">
             <Link href="/" className="flex items-center gap-2">
-              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-primary/70">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-accent">
                 <span className="text-sm font-bold text-primary-foreground">
                   H
                 </span>
@@ -101,7 +102,7 @@ export default function SignupPage() {
             </Link>
           </div>
 
-          <h1 className="text-2xl font-bold text-foreground">
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">
             Create your account
           </h1>
           <p className="mt-1 text-sm text-muted-foreground">
@@ -109,7 +110,7 @@ export default function SignupPage() {
           </p>
 
           <Tabs defaultValue="applicant" className="mt-6">
-            <TabsList className="w-full">
+            <TabsList className="w-full rounded-xl bg-secondary/60">
               <TabsTrigger value="applicant" className="flex-1">
                 Applicant
               </TabsTrigger>
@@ -270,7 +271,7 @@ export default function SignupPage() {
                   />
                 </div>
                 {error && <p className="text-sm text-destructive">{error}</p>}
-                <Button className="w-full" type="submit" disabled={loading}>
+                <Button className="w-full rounded-full" type="submit" disabled={loading}>
                   {loading ? "Creating account…" : "Create Applicant Account"}
                 </Button>
               </form>
@@ -356,7 +357,7 @@ export default function SignupPage() {
                   />
                 </div>
                 {error && <p className="text-sm text-destructive">{error}</p>}
-                <Button className="w-full" type="submit" disabled={loading}>
+                <Button className="w-full rounded-full" type="submit" disabled={loading}>
                   {loading ? "Creating account…" : "Create Company Account"}
                 </Button>
               </form>

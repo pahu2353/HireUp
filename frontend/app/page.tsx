@@ -7,7 +7,7 @@ import { Footer } from "@/components/landing/footer"
 
 export default function Page() {
   return (
-    <main>
+    <main className="relative overflow-x-hidden">
       <Navbar />
       <Hero />
       <Problems />

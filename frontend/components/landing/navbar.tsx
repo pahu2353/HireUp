@@ -10,50 +10,50 @@ export function Navbar() {
   const [mobileOpen, setMobileOpen] = useState(false)
 
   return (
-    <header className="fixed top-0 left-0 right-0 z-50 border-b border-border/50 bg-background/80 backdrop-blur-xl">
-      <nav className="mx-auto flex max-w-7xl items-center justify-between px-6 py-4">
-        <Link href="/" className="flex items-center gap-2">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-primary to-primary/70">
+    <header className="fixed inset-x-0 top-0 z-50 px-4 pt-4 md:px-6">
+      <nav className="app-shell mx-auto flex w-full max-w-7xl items-center justify-between px-4 py-3 md:px-5">
+        <Link href="/" className="group inline-flex items-center gap-2.5">
+          <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-gradient-to-br from-primary to-accent shadow-sm transition-transform duration-200 group-hover:-translate-y-0.5">
             <span className="text-sm font-bold text-primary-foreground">H</span>
           </div>
-          <span className="text-lg font-bold tracking-tight text-foreground">
+          <span className="text-base font-semibold tracking-tight text-foreground md:text-lg">
             HireUp
           </span>
         </Link>
 
-        <div className="hidden items-center gap-8 md:flex">
+        <div className="hidden items-center gap-2 rounded-full border border-border/70 bg-background/85 px-2 py-1 md:flex">
           <Link
             href="#how-it-works"
-            className="text-sm text-muted-foreground transition-colors hover:text-foreground"
+            className="rounded-full px-3 py-1.5 text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground transition-colors hover:text-foreground"
           >
             How It Works
           </Link>
           <Link
             href="#for-companies"
-            className="text-sm text-muted-foreground transition-colors hover:text-foreground"
+            className="rounded-full px-3 py-1.5 text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground transition-colors hover:text-foreground"
           >
             For Companies
           </Link>
           <Link
             href="#for-applicants"
-            className="text-sm text-muted-foreground transition-colors hover:text-foreground"
+            className="rounded-full px-3 py-1.5 text-xs font-medium uppercase tracking-[0.12em] text-muted-foreground transition-colors hover:text-foreground"
           >
             For Applicants
           </Link>
         </div>
 
-        <div className="hidden items-center gap-3 md:flex">
+        <div className="hidden items-center gap-2 md:flex">
           <ThemeToggle />
-          <Button variant="ghost" size="sm" asChild>
+          <Button variant="ghost" size="sm" className="rounded-full" asChild>
             <Link href="/login">Log in</Link>
           </Button>
-          <Button size="sm" asChild>
+          <Button size="sm" className="rounded-full px-4" asChild>
             <Link href="/signup">Get Started</Link>
           </Button>
         </div>
 
         <button
-          className="flex items-center justify-center md:hidden"
+          className="flex h-9 w-9 items-center justify-center rounded-full border border-border/70 bg-background md:hidden"
           onClick={() => setMobileOpen(!mobileOpen)}
           aria-label="Toggle menu"
         >
@@ -66,25 +66,25 @@ export function Navbar() {
       </nav>
 
       {mobileOpen && (
-        <div className="border-t border-border/50 bg-background px-6 py-4 md:hidden">
+        <div className="app-shell mx-auto mt-2 w-full max-w-7xl px-4 py-4 md:hidden">
           <div className="flex flex-col gap-4">
             <Link
               href="#how-it-works"
-              className="text-sm text-muted-foreground"
+              className="rounded-lg px-2 py-1.5 text-sm text-muted-foreground"
               onClick={() => setMobileOpen(false)}
             >
               How It Works
             </Link>
             <Link
               href="#for-companies"
-              className="text-sm text-muted-foreground"
+              className="rounded-lg px-2 py-1.5 text-sm text-muted-foreground"
               onClick={() => setMobileOpen(false)}
             >
               For Companies
             </Link>
             <Link
               href="#for-applicants"
-              className="text-sm text-muted-foreground"
+              className="rounded-lg px-2 py-1.5 text-sm text-muted-foreground"
               onClick={() => setMobileOpen(false)}
             >
               For Applicants
@@ -93,10 +93,10 @@ export function Navbar() {
               <ThemeToggle />
             </div>
             <div className="flex flex-col gap-2">
-              <Button variant="ghost" size="sm" asChild>
+              <Button variant="ghost" size="sm" className="justify-start" asChild>
                 <Link href="/login">Log in</Link>
               </Button>
-              <Button size="sm" asChild>
+              <Button size="sm" className="justify-start" asChild>
                 <Link href="/signup">Get Started</Link>
               </Button>
             </div>

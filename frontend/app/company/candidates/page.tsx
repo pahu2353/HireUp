@@ -517,15 +517,6 @@ function CandidatesPage() {
                         </div>
                       ) : null
                     })()}
-                    <button
-                      className="text-xs font-medium text-primary underline-offset-2 hover:underline"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        openDetailsModal(candidate)
-                      }}
-                    >
-                      More details
-                    </button>
                     <Badge variant="secondary">{STATUS_LABEL[candidate.status] || candidate.status}</Badge>
                   </div>
                 </div>

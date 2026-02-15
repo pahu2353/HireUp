@@ -4,17 +4,23 @@ import { ArrowRight, Building2, User } from "lucide-react"
 
 export function DualCTA() {
   return (
-    <section className="px-6 py-24">
+    <section className="px-6 py-20 md:py-24">
       <div className="mx-auto max-w-7xl">
+        <div className="mb-10 max-w-3xl">
+          <div className="eyebrow">Choose Your Side</div>
+          <h2 className="section-title mt-5">
+            One platform, two high-signal workflows.
+          </h2>
+        </div>
         <div className="grid grid-cols-1 gap-6 md:grid-cols-2">
           <div
             id="for-companies"
-            className="rounded-2xl border border-border bg-gradient-to-br from-card via-card to-primary/5 p-10"
+            className="app-shell bg-gradient-to-br from-card via-card to-primary/5 p-8 md:p-10"
           >
-            <div className="mb-6 flex h-12 w-12 items-center justify-center rounded-lg bg-gradient-to-br from-primary/20 to-primary/5">
+            <div className="mb-6 flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-primary/20 to-primary/5">
               <Building2 className="h-6 w-6 text-primary" />
             </div>
-            <h3 className="text-2xl font-bold text-foreground">
+            <h3 className="text-2xl font-semibold tracking-tight text-foreground">
               For Companies
             </h3>
             <p className="mt-3 text-muted-foreground leading-relaxed">
@@ -38,7 +44,7 @@ export function DualCTA() {
                 </li>
               ))}
             </ul>
-            <Button className="mt-8" asChild>
+            <Button className="mt-8 rounded-full px-6" asChild>
               <Link href="/signup?role=company">
                 Start Hiring
                 <ArrowRight className="ml-2 h-4 w-4" />
@@ -48,12 +54,12 @@ export function DualCTA() {
 
           <div
             id="for-applicants"
-            className="rounded-2xl border border-border bg-gradient-to-br from-card via-card to-destructive/5 p-10"
+            className="app-shell bg-gradient-to-br from-card via-card to-chart-2/10 p-8 md:p-10"
           >
-            <div className="mb-6 flex h-12 w-12 items-center justify-center rounded-lg bg-gradient-to-br from-primary/20 to-primary/5">
+            <div className="mb-6 flex h-12 w-12 items-center justify-center rounded-xl bg-gradient-to-br from-primary/20 to-primary/5">
               <User className="h-6 w-6 text-primary" />
             </div>
-            <h3 className="text-2xl font-bold text-foreground">
+            <h3 className="text-2xl font-semibold tracking-tight text-foreground">
               For Applicants
             </h3>
             <p className="mt-3 text-muted-foreground leading-relaxed">
@@ -77,7 +83,7 @@ export function DualCTA() {
                 </li>
               ))}
             </ul>
-            <Button className="mt-8" variant="outline" asChild>
+            <Button className="mt-8 rounded-full px-6" variant="outline" asChild>
               <Link href="/signup?role=applicant">
                 Find Your Match
                 <ArrowRight className="ml-2 h-4 w-4" />

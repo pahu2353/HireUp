@@ -29,44 +29,39 @@ const solutions = [
 
 export function Solution() {
   return (
-    <section className="relative px-6 py-24">
-      <div className="absolute inset-0 -z-10">
-        <div className="absolute right-0 top-1/3 h-[400px] w-[400px] rounded-full bg-gradient-to-l from-primary/8 to-transparent blur-[100px]" />
-      </div>
+    <section className="relative px-6 py-20 md:py-24">
       <div className="mx-auto max-w-7xl">
-        <div className="mb-16 max-w-2xl">
-          <p className="mb-2 text-sm font-medium uppercase tracking-wider text-primary">
-            The Solution
-          </p>
-          <h2 className="text-balance text-3xl font-bold tracking-tight text-foreground md:text-4xl">
-            Turning recruiters into 10x recruiters.
+        <div className="mb-12 max-w-3xl md:mb-14">
+          <div className="eyebrow">The System</div>
+          <h2 className="section-title mt-5">
+            A focused recruiting engine built for startup execution speed.
           </h2>
-          <p className="mt-4 text-pretty text-lg leading-relaxed text-muted-foreground">
-            HireUp is Cursor for hiring. We combine constrained applications,
-            intelligent matching, and AI agents to fix the broken recruiting
-            pipeline.
+          <p className="mt-5 max-w-2xl text-pretty text-lg leading-relaxed text-muted-foreground">
+            HireUp combines constrained applications, two-tower matching, and
+            an AI recruiting copilot to keep teams moving fast without hiring
+            blind.
           </p>
         </div>
 
-        <div className="grid grid-cols-1 gap-8 md:grid-cols-3">
+        <div className="grid grid-cols-1 gap-5 md:grid-cols-3">
           {solutions.map((solution) => (
             <div
               key={solution.title}
-              className="relative rounded-xl border border-border bg-gradient-to-b from-card to-card/50 p-8"
+              className="app-shell relative p-7"
             >
-              <span className="font-mono text-xs text-primary">
+              <span className="font-mono text-xs tracking-[0.15em] text-primary">
                 {solution.step}
               </span>
-              <div className="mt-4 mb-4 flex h-12 w-12 items-center justify-center rounded-lg bg-primary/10">
-                <solution.icon className="h-6 w-6 text-primary" />
+              <div className="mb-4 mt-4 flex h-11 w-11 items-center justify-center rounded-xl bg-primary/12">
+                <solution.icon className="h-5 w-5 text-primary" />
               </div>
-              <h3 className="mb-2 text-lg font-semibold text-foreground">
+              <h3 className="mb-2 text-lg font-semibold tracking-tight text-foreground">
                 {solution.title}
               </h3>
               <p className="mb-4 text-sm leading-relaxed text-muted-foreground">
                 {solution.description}
               </p>
-              <p className="text-xs leading-relaxed text-muted-foreground/70 border-t border-border pt-4">
+              <p className="border-t border-border/70 pt-4 text-xs leading-relaxed text-muted-foreground/75">
                 {solution.detail}
               </p>
             </div>

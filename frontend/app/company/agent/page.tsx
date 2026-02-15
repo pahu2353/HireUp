@@ -1,6 +1,6 @@
 "use client"
 
-import { FormEvent, useEffect, useRef, useState, Suspense } from "react"
+import { FormEvent, Suspense, useEffect, useRef, useState } from "react"
 import { useSearchParams } from "next/navigation"
 import { DashboardShell } from "@/components/dashboard/dashboard-shell"
 import { Badge } from "@/components/ui/badge"
@@ -71,7 +71,7 @@ function buildNewChatId() {
   return `chat-${Date.now()}`
 }
 
-function AgentPage() {
+function AgentPageContent() {
   const searchParams = useSearchParams()
   const [messages, setMessages] = useState<Message[]>([WELCOME_MESSAGE])
   const [input, setInput] = useState("")
@@ -577,12 +577,16 @@ function AgentPage() {
   )
 }
 
-function AgentPageWrapper() {
+export default function AgentPage() {
   return (
-    <Suspense fallback={<div className="p-8">Loading...</div>}>
-      <AgentPage />
+    <Suspense
+      fallback={
+        <DashboardShell role="company">
+          <p className="text-sm text-muted-foreground">Loading recruiting agent...</p>
+        </DashboardShell>
+      }
+    >
+      <AgentPageContent />
     </Suspense>
   )
 }
-
-export default AgentPageWrapper
