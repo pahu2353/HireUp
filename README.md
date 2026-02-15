@@ -2,6 +2,7 @@
 <img width="2880" height="1684" alt="image" src="https://github.com/user-attachments/assets/1b670e35-b57f-4d9a-8acc-213e821e3aed" />
 
 https://youtu.be/a03VWeouYsk
+
 HireUp is a high-signal hiring platform built to fix noisy recruiting pipelines.
 
 Instead of rewarding spam applications and resume falsification, HireUp combines:
