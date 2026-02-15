@@ -96,7 +96,7 @@ export default function PostingsPage() {
         .map((r) => r.trim())
         .filter(Boolean)
 
-      const response = await createCompanyJobPosting({
+      await createCompanyJobPosting({
         company_id: companyId,
         title: newTitle.trim(),
         description: newDescription.trim(),

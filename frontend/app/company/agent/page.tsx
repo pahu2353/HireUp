@@ -10,7 +10,6 @@ import { ScrollArea } from "@/components/ui/scroll-area"
 import { cn } from "@/lib/utils"
 import { Bot, Search, Send, Sparkles, User, UserCheck, Zap } from "lucide-react"
 import { getAuth } from "@/lib/api"
-import { getCompanyPostings } from "@/lib/company-jobs"
 import { getTopCandidates, TopCandidate } from "@/lib/company-api"
 
 interface Message {
@@ -55,8 +54,21 @@ export default function AgentPage() {
       setError("Log in as a company account to use the recruiting agent.")
       return
     }
-    const postings = getCompanyPostings(auth.id)
-    if (postings.length > 0) setJobId(postings[0].id)
+    
+    // Fetch jobs from backend
+    const fetchJobs = async () => {
+      try {
+        const response = await fetch(`http://localhost:8000/get-company-jobs?company_id=${auth.id}`)
+        const data = await response.json()
+        if (data.jobs && data.jobs.length > 0) {
+          setJobId(data.jobs[0].id)
+        }
+      } catch (e) {
+        console.error("Failed to fetch jobs:", e)
+      }
+    }
+    
+    fetchJobs()
   }, [])
 
   const handleSend = async (e?: FormEvent) => {

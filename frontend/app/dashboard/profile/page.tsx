@@ -10,6 +10,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { getAuth, getResumeUrl } from "@/lib/api"
 import { getUserProfile, updateUserProfile, UserProfile } from "@/lib/user-api"
+import { Check } from "lucide-react"
 
 const emptyProfile: UserProfile = {
   user_id: "",
@@ -41,6 +42,7 @@ export default function ApplicantProfilePage() {
   const [isSaving, setIsSaving] = useState(false)
   const [hasResumePdf, setHasResumePdf] = useState(false)
   const [isUploadingResume, setIsUploadingResume] = useState(false)
+  const [saveSuccess, setSaveSuccess] = useState(false)
 
   useEffect(() => {
     const auth = getAuth()
@@ -62,6 +64,7 @@ export default function ApplicantProfilePage() {
     if (!profile.user_id) return
     setError("")
     setInfo("")
+    setSaveSuccess(false)
     setIsSaving(true)
     try {
       const payload: UserProfile = {
@@ -76,6 +79,9 @@ export default function ApplicantProfilePage() {
       setProfile(p)
       setSkillsInput(p.skills.join(", "))
       setInfo("Profile saved.")
+      setSaveSuccess(true)
+      // Reset success state after animation
+      setTimeout(() => setSaveSuccess(false), 2000)
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to save profile")
     } finally {
@@ -251,8 +257,21 @@ export default function ApplicantProfilePage() {
           </CardContent>
         </Card>
 
-        <Button onClick={saveChanges} disabled={isSaving || !profile.user_id}>
-          {isSaving ? "Saving..." : "Save Changes"}
+        <Button 
+          onClick={saveChanges} 
+          disabled={isSaving || !profile.user_id}
+          className={saveSuccess ? "bg-green-600 hover:bg-green-700" : ""}
+        >
+          {isSaving ? (
+            "Saving..."
+          ) : saveSuccess ? (
+            <>
+              <Check className="mr-2 h-4 w-4" />
+              Saved!
+            </>
+          ) : (
+            "Save Changes"
+          )}
         </Button>
       </div>
     </DashboardShell>

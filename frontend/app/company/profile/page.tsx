@@ -9,6 +9,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { getAuth } from "@/lib/api"
 import { CompanyProfile, getCompanyProfile, updateCompanyProfile } from "@/lib/company-api"
+import { Check } from "lucide-react"
 
 const emptyProfile: CompanyProfile = {
   company_id: "",
@@ -39,6 +40,7 @@ export default function CompanyProfilePage() {
   const [error, setError] = useState("")
   const [info, setInfo] = useState("")
   const [isSaving, setIsSaving] = useState(false)
+  const [saveSuccess, setSaveSuccess] = useState(false)
 
   useEffect(() => {
     const auth = getAuth()
@@ -55,11 +57,15 @@ export default function CompanyProfilePage() {
     if (!profile.company_id) return
     setError("")
     setInfo("")
+    setSaveSuccess(false)
     setIsSaving(true)
     try {
       const res = await updateCompanyProfile(profile)
       setProfile(sanitizeProfile(res.profile))
       setInfo("Profile saved.")
+      setSaveSuccess(true)
+      // Reset success state after animation
+      setTimeout(() => setSaveSuccess(false), 2000)
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to save profile")
     } finally {
@@ -146,8 +152,21 @@ export default function CompanyProfilePage() {
           </CardContent>
         </Card>
 
-        <Button onClick={saveProfile} disabled={isSaving || !profile.company_id}>
-          {isSaving ? "Saving..." : "Save Changes"}
+        <Button 
+          onClick={saveProfile} 
+          disabled={isSaving || !profile.company_id}
+          className={saveSuccess ? "bg-green-600 hover:bg-green-700" : ""}
+        >
+          {isSaving ? (
+            "Saving..."
+          ) : saveSuccess ? (
+            <>
+              <Check className="mr-2 h-4 w-4" />
+              Saved!
+            </>
+          ) : (
+            "Save Changes"
+          )}
         </Button>
       </div>
     </DashboardShell>
