@@ -273,13 +273,14 @@ def update_user_profile(
         row = conn.execute("SELECT id FROM users WHERE id = ?", (user_id,)).fetchone()
         if not row:
             return None
+        # Only update editable fields - resume_text should only be updated via PDF upload
         conn.execute(
             """
             UPDATE users
-            SET name = ?, objective = ?, career_objective = ?, resume = ?, resume_text = ?, interests = ?
+            SET name = ?, objective = ?, career_objective = ?, interests = ?
             WHERE id = ?
             """,
-            (name, objective, objective, resume, resume, interests, user_id),
+            (name, objective, objective, interests, user_id),
         )
     return get_user_by_id(user_id)
 

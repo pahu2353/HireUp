@@ -135,7 +135,7 @@ def get_user_profile(user_id: str) -> Dict:
         "name": full_name,
         "first_name": first_name,
         "last_name": last_name,
-        "objective": user.get("objective", "") or "",
+        "objective": career_objective,  # Use career_objective as the primary objective
         "career_objective": career_objective,
         "resume": resume_content,
         "resume_text": user.get("resume_text", "") or "",

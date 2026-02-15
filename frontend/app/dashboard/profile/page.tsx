@@ -242,8 +242,8 @@ export default function ApplicantProfilePage() {
                 .split(",")
                 .map((s) => s.trim())
                 .filter(Boolean)
-                .map((skill) => (
-                  <Badge key={skill} variant="secondary">
+                .map((skill, index) => (
+                  <Badge key={`${skill}-${index}`} variant="secondary">
                     {skill}
                   </Badge>
                 ))}
