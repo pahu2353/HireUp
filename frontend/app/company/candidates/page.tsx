@@ -55,6 +55,7 @@ export default function CandidatesPage() {
   const [scoringProgress, setScoringProgress] = useState(0)
   const [isUpdating, setIsUpdating] = useState<string | null>(null)
   const [sortBy, setSortBy] = useState<"fit_desc" | "date_desc" | "date_asc" | "status">("date_desc")
+  const [selectedReportId, setSelectedReportId] = useState("__job_default__")
   const [unscoredCount, setUnscoredCount] = useState(0)
   const [selectedCandidateId, setSelectedCandidateId] = useState<string>("")
 
@@ -160,9 +161,9 @@ export default function CandidatesPage() {
     setInfo(`Scoring applicants... 0% (0 scored, ${unscoredCount} remaining)`)
     
     try {
-      const BATCH_SIZE = 20
-      const ESTIMATED_BATCH_TIME_MS = 90000 // 90 seconds per batch (20 applicants)
-      let offset = 0
+      const BATCH_SIZE = 10
+      // 90s for 20 applicants ~= 45s for 10 applicants.
+      const ESTIMATED_BATCH_TIME_MS = BATCH_SIZE * 4500
       let totalScored = 0
       let remaining = unscoredCount
       
@@ -177,44 +178,39 @@ export default function CandidatesPage() {
         
         // Animate progress smoothly during batch processing
         const startTime = Date.now()
-        const progressInterval = setInterval(() => {
-          const elapsed = Date.now() - startTime
-          const percentComplete = Math.min(elapsed / ESTIMATED_BATCH_TIME_MS, 0.95) // Cap at 95% until actual completion
-          const interpolated = Math.round(currentProgress + (nextProgress - currentProgress) * percentComplete)
-          setScoringProgress(interpolated)
-          // Update message during interpolation too
-          const estimatedScored = Math.round(totalScored + (BATCH_SIZE * percentComplete))
-          const estimatedRemaining = Math.max(0, unscoredCount - estimatedScored)
-          setInfo(`Scoring applicants... ${interpolated}% (${estimatedScored} scored, ${estimatedRemaining} remaining)`)
-        }, 100) // Update every 100ms for smooth animation
-        
-        // Fetch the actual batch results
-        const res = await scoreApplicants(companyId, jobId.trim() || undefined, BATCH_SIZE, offset)
-        
-        // Stop interpolation
-        clearInterval(progressInterval)
-        
-        // If no applicants were scored, we're done (no more unscored applicants in this offset range)
-        if (res.scored_count === 0) {
-          break
+        let progressInterval: ReturnType<typeof setInterval> | null = null
+        try {
+          progressInterval = setInterval(() => {
+            const elapsed = Date.now() - startTime
+            const percentComplete = Math.min(elapsed / ESTIMATED_BATCH_TIME_MS, 0.95)
+            const interpolated = Math.round(currentProgress + (nextProgress - currentProgress) * percentComplete)
+            setScoringProgress(interpolated)
+            const estimatedScored = Math.round(totalScored + BATCH_SIZE * percentComplete)
+            const estimatedRemaining = Math.max(0, unscoredCount - estimatedScored)
+            setInfo(`Scoring applicants... ${interpolated}% (${estimatedScored} scored, ${estimatedRemaining} remaining)`)
+          }, 100)
+
+          // Backend recalculates unrated each call; always process from the first remaining slice.
+          const res = await scoreApplicants(companyId, jobId.trim() || undefined, BATCH_SIZE, 0)
+          if (res.scored_count === 0) {
+            break
+          }
+
+          totalScored += res.scored_count
+          remaining = res.total_unrated
+
+          const actualProgress = unscoredCount > 0
+            ? Math.round(((unscoredCount - remaining) / unscoredCount) * 100)
+            : 100
+          setScoringProgress(actualProgress)
+          setInfo(`Scoring applicants... ${actualProgress}% (${totalScored} scored, ${remaining} remaining)`)
+          setApplicants(res.applicants)
+          setUnscoredCount(remaining)
+
+          if (remaining === 0) break
+        } finally {
+          if (progressInterval) clearInterval(progressInterval)
         }
-        
-        totalScored += res.scored_count
-        remaining = res.total_unrated
-        
-        // Update to actual progress
-        const actualProgress = unscoredCount > 0 
-          ? Math.round(((unscoredCount - remaining) / unscoredCount) * 100)
-          : 100
-        setScoringProgress(actualProgress)
-        setInfo(`Scoring applicants... ${actualProgress}% (${totalScored} scored, ${remaining} remaining)`)
-        
-        // Update applicants list with latest scores
-        setApplicants(res.applicants)
-        setUnscoredCount(remaining)
-        
-        if (remaining === 0) break
-        offset += BATCH_SIZE
       }
       
       setInfo(
@@ -308,6 +304,14 @@ export default function CandidatesPage() {
     return copy
   }, [applicants, sortBy])
 
+  const previousReports = useMemo(
+    () => [
+      { id: "__job_default__", name: "Job posting baseline (default)" },
+      { id: "__last__", name: "Most recent saved report" },
+    ],
+    [],
+  )
+
   return (
     <DashboardShell role="company">
       <div className="mb-8">
@@ -317,7 +321,7 @@ export default function CandidatesPage() {
 
       <Card className="mb-4">
         <CardContent className="pt-6">
-          <div className="grid gap-4 md:grid-cols-4">
+          <div className="grid gap-4 md:grid-cols-5">
             <div className="space-y-2 md:col-span-2">
               <Label htmlFor="job-select">Job posting</Label>
               <Select
@@ -337,6 +341,7 @@ export default function CandidatesPage() {
                 </SelectContent>
               </Select>
             </div>
+
             <div className="space-y-2">
               <Label htmlFor="sort-select">Sort applicants</Label>
               <Select value={sortBy} onValueChange={(value) => setSortBy(value as typeof sortBy)}>
@@ -351,6 +356,23 @@ export default function CandidatesPage() {
                 </SelectContent>
               </Select>
             </div>
+
+            <div className="space-y-2">
+              <Label htmlFor="report-select">Previous reports</Label>
+              <Select value={selectedReportId} onValueChange={setSelectedReportId}>
+                <SelectTrigger id="report-select">
+                  <SelectValue placeholder="Select a report" />
+                </SelectTrigger>
+                <SelectContent>
+                  {previousReports.map((report) => (
+                    <SelectItem key={report.id} value={report.id}>
+                      {report.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
             <div className="flex items-end">
               <Button onClick={loadApplicants} disabled={isLoading || !companyId} className="w-full">
                 {isLoading ? "Loading..." : "Load Applicants"}

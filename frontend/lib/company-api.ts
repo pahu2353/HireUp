@@ -199,7 +199,7 @@ export async function getCompanyApplicants(companyId: string, jobId?: string) {
   return data as { company_id: string; job_id?: string; applicants: CompanyApplicant[] }
 }
 
-export async function scoreApplicants(companyId: string, jobId?: string, batchSize: number = 20, offset: number = 0) {
+export async function scoreApplicants(companyId: string, jobId?: string, batchSize: number = 10, offset: number = 0) {
   const qs = new URLSearchParams({ company_id: companyId, batch_size: String(batchSize), offset: String(offset) })
   if (jobId) qs.set("job_id", jobId)
   const res = await fetch(`${getApiUrl("/score-applicants")}?${qs.toString()}`, { method: "POST" })

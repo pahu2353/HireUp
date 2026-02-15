@@ -114,7 +114,7 @@ def get_company_applicants(company_id: str, job_id: str | None = None):
 
 
 @router.post("/score-applicants")
-def score_applicants(company_id: str, job_id: str | None = None, batch_size: int = 20, offset: int = 0):
+def score_applicants(company_id: str, job_id: str | None = None, batch_size: int = 10, offset: int = 0):
     result = company_service.score_unrated_applicants(
         company_id, 
         job_id=job_id,

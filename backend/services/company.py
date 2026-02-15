@@ -804,7 +804,7 @@ def list_company_applicants(company_id: str, job_id: str | None = None) -> List[
 def score_unrated_applicants(
     company_id: str, 
     job_id: str | None = None,
-    batch_size: int = 20,
+    batch_size: int = 10,
     offset: int = 0,
 ) -> Dict:
     """Score one batch of unrated applicants. Returns scored count, total unrated, and applicants."""
