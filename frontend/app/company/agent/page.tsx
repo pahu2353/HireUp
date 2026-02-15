@@ -24,6 +24,7 @@ import {
   getAgentChats,
   getAgentMessages,
   getCompanyJobs,
+  getCompanyApplicants,
   getTopCandidates,
   saveAgentMessages,
   TopCandidate,
@@ -82,9 +83,18 @@ function AgentPageContent() {
   const [activeChatId, setActiveChatId] = useState("")
   const [isTyping, setIsTyping] = useState(false)
   const [error, setError] = useState("")
+  const [info, setInfo] = useState("")
   const [companyId, setCompanyId] = useState("")
   const scrollRef = useRef<HTMLDivElement>(null)
   const [resumeModalUser, setResumeModalUser] = useState<{ userId: string; name: string } | null>(null)
+  const [reportProgress, setReportProgress] = useState(0)
+
+  // Report naming dialog state
+  const [reportNameDialogOpen, setReportNameDialogOpen] = useState(false)
+  const [pendingReportPrompt, setPendingReportPrompt] = useState("")
+  const [reportName, setReportName] = useState("")
+  const [reportNameError, setReportNameError] = useState("")
+
 
   const refreshHistory = async (cid: string) => {
     const res = await getAgentChats(cid)
@@ -194,6 +204,7 @@ function AgentPageContent() {
     setMessages((prev) => [...prev, userMessage])
     setInput("")
     setIsTyping(true)
+    setReportProgress(0)
 
     const newMessages: Message[] = [userMessage]
 
@@ -221,49 +232,15 @@ function AgentPageContent() {
         newMessages.push(assistantMessage)
         setMessages((prev) => [...prev, assistantMessage])
       } else {
-        // Generate a new custom report
+        // Ask for report name before generating
         const jobTitle = jobs.find((j) => j.id === jobId)?.title ?? "this job"
-        const reportName = `${jobTitle} - ${prompt.slice(0, 50)}${prompt.length > 50 ? '...' : ''}`
-        
-        const response = await generateCustomReport({
-          company_id: companyId,
-          job_id: jobId.trim(),
-          report_name: reportName,
-          custom_prompt: prompt,
-        })
+        const defaultName = `${jobTitle} - ${prompt.slice(0, 50)}${prompt.length > 50 ? '...' : ''}`
 
-        const topNames = response.top_candidates
-          .slice(0, 3)
-          .map((c) => c.user_name || "Unknown")
-          .join(", ")
-        
-        // Create natural response based on number of candidates
-        let responseText = ""
-        if (response.total_scored === 0) {
-          responseText = `I couldn't find any candidates for this role. Try adjusting your criteria or check if there are applicants in the system.`
-        } else if (response.total_scored === 1) {
-          responseText = `Found 1 candidate who matches your criteria. Check out the report below to see the details!`
-        } else if (topNames && response.total_scored <= 3) {
-          responseText = `I found ${response.total_scored} candidates who fit what you're looking for. Top picks: ${topNames}. Click below to see the full breakdown.`
-        } else if (topNames) {
-          responseText = `Great! I ranked ${response.total_scored} candidates based on your criteria. Your top matches are ${topNames}. Check out the report below for the complete ranking and detailed scores.`
-        } else {
-          responseText = `I've ranked ${response.total_scored} candidates for you. Click the button below to see the full report with scores and reasoning.`
-        }
-        
-        const assistantMessage: Message = {
-          id: String(Date.now() + 1),
-          role: "assistant",
-          content: responseText,
-          report: {
-            report_id: response.report_id,
-            report_name: response.report_name,
-            custom_prompt: response.custom_prompt,
-            total_scored: response.total_scored,
-          },
-        }
-        newMessages.push(assistantMessage)
-        setMessages((prev) => [...prev, assistantMessage])
+        setPendingReportPrompt(prompt)
+        setReportName(defaultName)
+        setReportNameDialogOpen(true)
+        setIsTyping(false)
+        return
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to generate report"
@@ -284,6 +261,103 @@ function AgentPageContent() {
       }
     }
   }
+
+  const confirmReportGeneration = async () => {
+    if (!reportName.trim()) {
+      setReportNameError("Report name is required")
+      return
+    }
+
+    setReportNameDialogOpen(false)
+    setReportNameError("")
+    setIsTyping(true)
+    setReportProgress(0)
+
+    const prompt = pendingReportPrompt
+    const newMessages: Message[] = []
+
+    // Fetch applicant count and start progress animation
+    let estimatedTime = 15000 // Default fallback
+    let progressInterval: ReturnType<typeof setInterval> | null = null
+    try {
+      const applicantsRes = await getCompanyApplicants(companyId, jobId.trim())
+      const candidateCount = Math.min(applicantsRes.applicants.length, 100)
+      estimatedTime = candidateCount * 417 // 417ms per candidate (25s for 60)
+    } catch {
+      // Use default
+    }
+
+    const startTime = Date.now()
+    progressInterval = setInterval(() => {
+      const elapsed = Date.now() - startTime
+      const percentComplete = Math.min(elapsed / estimatedTime, 0.9)
+      setReportProgress(Math.round(percentComplete * 100))
+    }, 50)
+
+    try {
+      const response = await generateCustomReport({
+        company_id: companyId,
+        job_id: jobId.trim(),
+        report_name: reportName.trim(),
+        custom_prompt: prompt,
+      })
+
+      const topNames = response.top_candidates
+        .slice(0, 3)
+        .map((c) => c.user_name || "Unknown")
+        .join(", ")
+
+      // Create natural response based on number of candidates
+      let responseText = ""
+      if (response.total_scored === 0) {
+        responseText = `I couldn't find any candidates for this role. Try adjusting your criteria or check if there are applicants in the system.`
+      } else if (response.total_scored === 1) {
+        responseText = `Found 1 candidate who matches your criteria. Check out the report below to see the details!`
+      } else if (topNames && response.total_scored <= 3) {
+        responseText = `I found ${response.total_scored} candidates who fit what you're looking for. Top picks: ${topNames}. Click below to see the full breakdown.`
+      } else if (topNames) {
+        responseText = `Great! I ranked ${response.total_scored} candidates based on your criteria. Your top matches are ${topNames}. Check out the report below for the complete ranking and detailed scores.`
+      } else {
+        responseText = `I've ranked ${response.total_scored} candidates for you. Click the button below to see the full report with scores and reasoning.`
+      }
+
+      const assistantMessage: Message = {
+        id: String(Date.now() + 1),
+        role: "assistant",
+        content: responseText,
+        report: {
+          report_id: response.report_id,
+          report_name: response.report_name,
+          custom_prompt: response.custom_prompt,
+          total_scored: response.total_scored,
+        },
+      }
+      newMessages.push(assistantMessage)
+      setMessages((prev) => [...prev, assistantMessage])
+      setInfo(`✓ Generated report with ${response.total_scored} candidate${response.total_scored === 1 ? '' : 's'} scored.`)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Failed to generate report"
+      setError(msg)
+      const errorMessage: Message = {
+        id: String(Date.now() + 1),
+        role: "assistant",
+        content: `Oops, something went wrong: ${msg}. Mind trying that again?`,
+      }
+      newMessages.push(errorMessage)
+      setMessages((prev) => [...prev, errorMessage])
+    } finally {
+      if (progressInterval) clearInterval(progressInterval)
+      setReportProgress(100)
+      setIsTyping(false)
+      setTimeout(() => setReportProgress(0), 1000)
+      try {
+        await persistMessages(newMessages)
+      } catch {
+        // best effort persistence
+      }
+    }
+  }
+
 
   return (
     <DashboardShell role="company">
@@ -329,6 +403,17 @@ function AgentPageContent() {
           {error ? <p className="mt-2 text-sm text-destructive">{error}</p> : null}
         </CardContent>
       </Card>
+
+      {isTyping && (
+        <div className="mb-4">
+          <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+            <div
+              className="h-full bg-primary transition-all duration-300 ease-out"
+              style={{ width: `${reportProgress}%` }}
+            />
+          </div>
+        </div>
+      )}
 
       <div className="flex flex-col rounded-xl border border-border bg-card" style={{ height: "calc(100vh - 420px)" }}>
         <ScrollArea className="flex-1 p-4" ref={scrollRef}>
