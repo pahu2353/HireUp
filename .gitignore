@@ -1,6 +1,33 @@
-*/__pycache__
-backend/hireup.db
-*.db
-two-tower/resumes/
+# Python
+__pycache__/
+*/__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual environments
 venv/
 .venv/
+env/
+ENV/
+
+# Database
+backend/hireup.db
+*.db
+*.sqlite
+*.sqlite3
+
+# Resumes
+two-tower/resumes/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
