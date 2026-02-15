@@ -6,6 +6,7 @@ import os
 import re
 import urllib.error
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List
@@ -303,7 +304,6 @@ def _openai_rank_and_analyze_candidates(job: Dict, prompt: str, candidates: List
     body = json.dumps(
         {
             "model": "gpt-5.2",
-            "temperature": 0.2,
             "response_format": {"type": "json_object"},
             "messages": [
                 {"role": "system", "content": system_msg},
@@ -416,7 +416,6 @@ def _openai_rank_candidates(job: Dict, prompt: str, candidates: List[Dict]) -> L
     body = json.dumps(
         {
             "model": "gpt-5.2",
-            "temperature": 0.2,
             "response_format": {"type": "json_object"},
             "messages": [
                 {"role": "system", "content": system_msg},
@@ -531,7 +530,6 @@ def _openai_analyze_candidate_skills(
     body = json.dumps(
         {
             "model": "gpt-5.2",
-            "temperature": 0.2,
             "response_format": {"type": "json_object"},
             "messages": [
                 {"role": "system", "content": system_msg},
@@ -801,13 +799,80 @@ def list_company_applicants(company_id: str, job_id: str | None = None) -> List[
     return applicants
 
 
+def _score_single_batch(
+    company_id: str,
+    job_id_key: str,
+    job_apps: List[Dict],
+) -> int:
+    """Score a single batch of applicants for one job. Returns count scored."""
+    job = database.get_job(job_id_key)
+    if not job:
+        return 0
+
+    candidate_pool = []
+    app_by_user: Dict[str, Dict] = {}
+    for app in job_apps:
+        user_id = str(app.get("user_id") or "")
+        if not user_id:
+            continue
+        app_by_user[user_id] = app
+        candidate_pool.append(
+            {
+                "user_id": user_id,
+                "name": app.get("user_name", ""),
+                "skills": app.get("skills", []),
+                "resume_text": app.get("resume_text", ""),
+            }
+        )
+    if not candidate_pool:
+        return 0
+
+    prompt = "Evaluate each candidate's fit for this role based solely on the job requirements. Score them independently — do not compare them to each other."
+    try:
+        ranked = _openai_rank_and_analyze_candidates(job, prompt, candidate_pool)
+    except Exception as e:
+        print(f"⚠️  OpenAI rank+analyze failed: {e}")
+        ranked = _rank_candidates(prompt, candidate_pool)
+
+    now_iso = _utc_now_iso()
+    scored_count = 0
+    for item in ranked:
+        user_id = str(item.get("user_id") or "")
+        app = app_by_user.get(user_id)
+        if not app:
+            continue
+        score = int(item.get("score", 0))
+        
+        # Store skill analysis if available
+        skill_analysis_json = ""
+        skill_summary = ""
+        if "skill_analysis" in item and item["skill_analysis"]:
+            try:
+                skill_analysis_json = json.dumps(item["skill_analysis"])
+                skill_summary = item.get("skill_summary", "")
+            except Exception:
+                pass
+        
+        database.update_application_fit_score(
+            application_id=app["application_id"],
+            fit_score=max(0, min(100, score)),
+            fit_reasoning=str(item.get("reasoning", "")),
+            fit_scored_at=now_iso,
+            skill_analysis=skill_analysis_json,
+            skill_analysis_summary=skill_summary,
+        )
+        scored_count += 1
+    
+    return scored_count
+
+
 def score_unrated_applicants(
     company_id: str, 
     job_id: str | None = None,
-    batch_size: int = 10,
+    batch_size: int = 5,
     offset: int = 0,
 ) -> Dict:
-    """Score one batch of unrated applicants. Returns scored count, total unrated, and applicants."""
+    """Score unrated applicants in parallel. Up to 20 threads, each processing batch_size applicants."""
     if not database.get_company_by_id(company_id):
         raise HTTPException(status_code=404, detail="Company not found")
     
@@ -829,74 +894,42 @@ def score_unrated_applicants(
     if total_unrated_before == 0:
         return {"scored_count": 0, "total_unrated": 0, "applicants": all_applicants}
     
-    # Process batch
-    batch = unrated[offset:offset + batch_size]
-    if not batch:
+    # Take up to 20 batches (20 threads * batch_size applicants each)
+    MAX_PARALLEL_BATCHES = 20
+    total_to_process = min(total_unrated_before, MAX_PARALLEL_BATCHES * batch_size)
+    batches_to_process = unrated[:total_to_process]
+    
+    if not batches_to_process:
         return {"scored_count": 0, "total_unrated": total_unrated_before, "applicants": all_applicants}
     
+    # Group by job, then split into batches of batch_size
     by_job: Dict[str, List[Dict]] = {}
-    for app in batch:
+    for app in batches_to_process:
         by_job.setdefault(str(app["job_id"]), []).append(app)
-
-    scored_count = 0
     
+    # Create work items: (job_id, batch_of_apps)
+    work_items: List[tuple[str, List[Dict]]] = []
     for job_id_key, job_apps in by_job.items():
-        job = database.get_job(job_id_key)
-        if not job:
-            continue
-
-        candidate_pool = []
-        app_by_user: Dict[str, Dict] = {}
-        for app in job_apps:
-            user_id = str(app.get("user_id") or "")
-            if not user_id:
-                continue
-            app_by_user[user_id] = app
-            candidate_pool.append(
-                {
-                    "user_id": user_id,
-                    "name": app.get("user_name", ""),
-                    "skills": app.get("skills", []),
-                    "resume_text": app.get("resume_text", ""),
-                }
-            )
-        if not candidate_pool:
-            continue
-
-        prompt = "Evaluate each candidate's fit for this role based solely on the job requirements. Score them independently — do not compare them to each other."
-        try:
-            ranked = _openai_rank_and_analyze_candidates(job, prompt, candidate_pool)
-        except Exception as e:
-            print(f"⚠️  OpenAI rank+analyze failed: {e}")
-            ranked = _rank_candidates(prompt, candidate_pool)
-
-        now_iso = _utc_now_iso()
-        for item in ranked:
-            user_id = str(item.get("user_id") or "")
-            app = app_by_user.get(user_id)
-            if not app:
-                continue
-            score = int(item.get("score", 0))
-            
-            # Store skill analysis if available
-            skill_analysis_json = ""
-            skill_summary = ""
-            if "skill_analysis" in item and item["skill_analysis"]:
-                try:
-                    skill_analysis_json = json.dumps(item["skill_analysis"])
-                    skill_summary = item.get("skill_summary", "")
-                except Exception:
-                    pass
-            
-            database.update_application_fit_score(
-                application_id=app["application_id"],
-                fit_score=max(0, min(100, score)),
-                fit_reasoning=str(item.get("reasoning", "")),
-                fit_scored_at=now_iso,
-                skill_analysis=skill_analysis_json,
-                skill_analysis_summary=skill_summary,
-            )
-            scored_count += 1
+        # Split this job's applicants into chunks of batch_size
+        for i in range(0, len(job_apps), batch_size):
+            chunk = job_apps[i:i + batch_size]
+            work_items.append((job_id_key, chunk))
+    
+    # Process in parallel with up to 20 threads
+    total_scored = 0
+    with ThreadPoolExecutor(max_workers=min(20, len(work_items))) as executor:
+        future_to_work = {
+            executor.submit(_score_single_batch, company_id, job_id_key, job_apps): (job_id_key, len(job_apps))
+            for job_id_key, job_apps in work_items
+        }
+        
+        for future in as_completed(future_to_work):
+            try:
+                scored = future.result()
+                total_scored += scored
+            except Exception as e:
+                job_id_key, count = future_to_work[future]
+                print(f"⚠️  Batch scoring failed for job {job_id_key} ({count} applicants): {e}")
     
     # Get refreshed applicant list with new scores
     applicants = database.get_company_applications(company_id, job_id=job_id)
@@ -912,10 +945,10 @@ def score_unrated_applicants(
     # Count remaining unrated
     remaining_unrated = len([a for a in applicants if a.get("fit_score") is None])
     
-    if scored_count:
-        _add_activity(company_id, "Applicant fit scores updated", f"Scored {scored_count} applicants.")
+    if total_scored:
+        _add_activity(company_id, "Applicant fit scores updated", f"Scored {total_scored} applicants.")
     
-    return {"scored_count": scored_count, "total_unrated": remaining_unrated, "applicants": applicants}
+    return {"scored_count": total_scored, "total_unrated": remaining_unrated, "applicants": applicants}
 
 
 def update_application_status(

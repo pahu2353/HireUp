@@ -158,43 +158,42 @@ export default function CandidatesPage() {
     setError("")
     setIsScoring(true)
     setScoringProgress(0)
-    setInfo(`Scoring applicants... 0% (0 scored, ${unscoredCount} remaining)`)
+    setInfo("")
     
     try {
-      const BATCH_SIZE = 10
-      // 90s for 20 applicants ~= 45s for 10 applicants.
-      const ESTIMATED_BATCH_TIME_MS = BATCH_SIZE * 4500
+      const BATCH_SIZE = 5
+      // Parallel processing: backend processes up to 100 applicants (20 threads × 5 each) per request.
+      // Estimate: 25 seconds per 60 applicants → ~417ms per applicant.
       let totalScored = 0
       let remaining = unscoredCount
       
       while (remaining > 0) {
-        // Start interpolation for this batch
         const currentProgress = unscoredCount > 0 
           ? Math.round(((unscoredCount - remaining) / unscoredCount) * 100)
           : 0
+        
+        // Calculate expected completion for this parallel batch
+        // Backend processes min(remaining, 100) applicants in parallel
+        const willProcess = Math.min(remaining, 100)
         const nextProgress = unscoredCount > 0
-          ? Math.round(((unscoredCount - Math.max(0, remaining - BATCH_SIZE)) / unscoredCount) * 100)
+          ? Math.round(((unscoredCount - (remaining - willProcess)) / unscoredCount) * 100)
           : 100
         
-        // Animate progress smoothly during batch processing
+        // Time estimate: 25s per 60 applicants → ~417ms per applicant
+        const estimatedTime = willProcess * 417
+        
         const startTime = Date.now()
         let progressInterval: ReturnType<typeof setInterval> | null = null
         try {
           progressInterval = setInterval(() => {
             const elapsed = Date.now() - startTime
-            const percentComplete = Math.min(elapsed / ESTIMATED_BATCH_TIME_MS, 0.95)
+            const percentComplete = Math.min(elapsed / estimatedTime, 0.98)
             const interpolated = Math.round(currentProgress + (nextProgress - currentProgress) * percentComplete)
             setScoringProgress(interpolated)
-            const estimatedScored = Math.round(totalScored + BATCH_SIZE * percentComplete)
-            const estimatedRemaining = Math.max(0, unscoredCount - estimatedScored)
-            setInfo(`Scoring applicants... ${interpolated}% (${estimatedScored} scored, ${estimatedRemaining} remaining)`)
-          }, 100)
+          }, 30)
 
-          // Backend recalculates unrated each call; always process from the first remaining slice.
           const res = await scoreApplicants(companyId, jobId.trim() || undefined, BATCH_SIZE, 0)
-          if (res.scored_count === 0) {
-            break
-          }
+          if (res.scored_count === 0) break
 
           totalScored += res.scored_count
           remaining = res.total_unrated
@@ -203,7 +202,6 @@ export default function CandidatesPage() {
             ? Math.round(((unscoredCount - remaining) / unscoredCount) * 100)
             : 100
           setScoringProgress(actualProgress)
-          setInfo(`Scoring applicants... ${actualProgress}% (${totalScored} scored, ${remaining} remaining)`)
           setApplicants(res.applicants)
           setUnscoredCount(remaining)
 
@@ -406,19 +404,19 @@ export default function CandidatesPage() {
       )}
 
       {error ? <p className="mb-4 text-sm text-destructive">{error}</p> : null}
-      {info ? (
-        <div className="mb-4 space-y-2">
-          <p className="text-sm text-muted-foreground">{info}</p>
-          {isScoring && (
-            <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
-              <div
-                className="h-full bg-primary transition-all duration-300 ease-out"
-                style={{ width: `${scoringProgress}%` }}
-              />
-            </div>
-          )}
+      
+      {isScoring && (
+        <div className="mb-4">
+          <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+            <div
+              className="h-full bg-primary transition-all duration-300 ease-out"
+              style={{ width: `${scoringProgress}%` }}
+            />
+          </div>
         </div>
-      ) : null}
+      )}
+      
+      {info && !isScoring ? <p className="mb-4 text-sm text-muted-foreground">{info}</p> : null}
 
       <div className="space-y-3">
         {sortedApplicants.map((candidate) => {
