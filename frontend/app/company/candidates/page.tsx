@@ -161,22 +161,53 @@ export default function CandidatesPage() {
     
     try {
       const BATCH_SIZE = 20
+      const ESTIMATED_BATCH_TIME_MS = 90000 // 90 seconds per batch (20 applicants)
       let offset = 0
       let totalScored = 0
       let remaining = unscoredCount
       
       while (remaining > 0) {
+        // Start interpolation for this batch
+        const currentProgress = unscoredCount > 0 
+          ? Math.round(((unscoredCount - remaining) / unscoredCount) * 100)
+          : 0
+        const nextProgress = unscoredCount > 0
+          ? Math.round(((unscoredCount - Math.max(0, remaining - BATCH_SIZE)) / unscoredCount) * 100)
+          : 100
+        
+        // Animate progress smoothly during batch processing
+        const startTime = Date.now()
+        const progressInterval = setInterval(() => {
+          const elapsed = Date.now() - startTime
+          const percentComplete = Math.min(elapsed / ESTIMATED_BATCH_TIME_MS, 0.95) // Cap at 95% until actual completion
+          const interpolated = Math.round(currentProgress + (nextProgress - currentProgress) * percentComplete)
+          setScoringProgress(interpolated)
+          // Update message during interpolation too
+          const estimatedScored = Math.round(totalScored + (BATCH_SIZE * percentComplete))
+          const estimatedRemaining = Math.max(0, unscoredCount - estimatedScored)
+          setInfo(`Scoring applicants... ${interpolated}% (${estimatedScored} scored, ${estimatedRemaining} remaining)`)
+        }, 100) // Update every 100ms for smooth animation
+        
+        // Fetch the actual batch results
         const res = await scoreApplicants(companyId, jobId.trim() || undefined, BATCH_SIZE, offset)
+        
+        // Stop interpolation
+        clearInterval(progressInterval)
+        
+        // If no applicants were scored, we're done (no more unscored applicants in this offset range)
+        if (res.scored_count === 0) {
+          break
+        }
         
         totalScored += res.scored_count
         remaining = res.total_unrated
         
-        // Update progress
-        const progress = unscoredCount > 0 
+        // Update to actual progress
+        const actualProgress = unscoredCount > 0 
           ? Math.round(((unscoredCount - remaining) / unscoredCount) * 100)
           : 100
-        setScoringProgress(progress)
-        setInfo(`Scoring applicants... ${progress}% (${totalScored} scored, ${remaining} remaining)`)
+        setScoringProgress(actualProgress)
+        setInfo(`Scoring applicants... ${actualProgress}% (${totalScored} scored, ${remaining} remaining)`)
         
         // Update applicants list with latest scores
         setApplicants(res.applicants)
