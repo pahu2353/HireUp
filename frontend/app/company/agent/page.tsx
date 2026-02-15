@@ -7,10 +7,11 @@ import { Button } from "@/components/ui/button"
 import { Card, CardContent } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { ScrollArea } from "@/components/ui/scroll-area"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { cn } from "@/lib/utils"
 import { Bot, Search, Send, Sparkles, User, UserCheck, Zap } from "lucide-react"
 import { getAuth } from "@/lib/api"
-import { getTopCandidates, TopCandidate } from "@/lib/company-api"
+import { CompanyJob, getCompanyJobs, getTopCandidates, TopCandidate } from "@/lib/company-api"
 
 interface Message {
   id: string
@@ -37,6 +38,7 @@ export default function AgentPage() {
   ])
   const [input, setInput] = useState("")
   const [jobId, setJobId] = useState("")
+  const [jobs, setJobs] = useState<CompanyJob[]>([])
   const [isTyping, setIsTyping] = useState(false)
   const [agentMode, setAgentMode] = useState(false)
   const [error, setError] = useState("")
@@ -54,21 +56,17 @@ export default function AgentPage() {
       setError("Log in as a company account to use the recruiting agent.")
       return
     }
-    
-    // Fetch jobs from backend
-    const fetchJobs = async () => {
-      try {
-        const response = await fetch(`http://localhost:8000/get-company-jobs?company_id=${auth.id}`)
-        const data = await response.json()
-        if (data.jobs && data.jobs.length > 0) {
-          setJobId(data.jobs[0].id)
+
+    getCompanyJobs(auth.id)
+      .then((res) => {
+        setJobs(res.jobs)
+        if (res.jobs.length > 0) {
+          setJobId(res.jobs[0].id)
         }
-      } catch (e) {
-        console.error("Failed to fetch jobs:", e)
-      }
-    }
-    
-    fetchJobs()
+      })
+      .catch((e) => {
+        setError(e instanceof Error ? e.message : "Failed to load job postings")
+      })
   }, [])
 
   const handleSend = async (e?: FormEvent) => {
@@ -87,14 +85,33 @@ export default function AgentPage() {
     setIsTyping(true)
 
     try {
-      const response = await getTopCandidates(jobId.trim(), prompt)
-      const assistantMessage: Message = {
-        id: String(Date.now() + 1),
-        role: "assistant",
-        content: `Found ${response.top_candidates.length} candidates for job ${response.job_id}.`,
-        candidates: response.top_candidates,
+      if (jobId === "__all__") {
+        if (jobs.length === 0) {
+          throw new Error("No job postings available.")
+        }
+        const results = await Promise.all(
+          jobs.map(async (job) => {
+            const response = await getTopCandidates(job.id, prompt)
+            return { jobTitle: job.title, response }
+          }),
+        )
+        const assistantMessages: Message[] = results.map(({ jobTitle, response }, idx) => ({
+          id: String(Date.now() + 1 + idx),
+          role: "assistant",
+          content: `Found ${response.top_candidates.length} candidates for ${jobTitle}.`,
+          candidates: response.top_candidates,
+        }))
+        setMessages((prev) => [...prev, ...assistantMessages])
+      } else {
+        const response = await getTopCandidates(jobId.trim(), prompt)
+        const assistantMessage: Message = {
+          id: String(Date.now() + 1),
+          role: "assistant",
+          content: `Found ${response.top_candidates.length} candidates for job ${response.job_id}.`,
+          candidates: response.top_candidates,
+        }
+        setMessages((prev) => [...prev, assistantMessage])
       }
-      setMessages((prev) => [...prev, assistantMessage])
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to fetch candidates"
       setError(msg)
@@ -151,12 +168,20 @@ export default function AgentPage() {
 
       <Card className="mb-4">
         <CardContent className="pt-6">
-          <label className="mb-2 block text-sm font-medium text-foreground">Job ID</label>
-          <Input
-            value={jobId}
-            onChange={(e) => setJobId(e.target.value)}
-            placeholder="Paste a job id from the postings page"
-          />
+          <label className="mb-2 block text-sm font-medium text-foreground">Job Posting</label>
+          <Select value={jobId} onValueChange={setJobId}>
+            <SelectTrigger>
+              <SelectValue placeholder="Select a job posting" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem value="__all__">All postings</SelectItem>
+              {jobs.map((job) => (
+                <SelectItem key={job.id} value={job.id}>
+                  {job.title}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
           {error ? <p className="mt-2 text-sm text-destructive">{error}</p> : null}
         </CardContent>
       </Card>

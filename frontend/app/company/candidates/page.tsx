@@ -5,8 +5,9 @@ import { DashboardShell } from "@/components/dashboard/dashboard-shell"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
-import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
+import { Input } from "@/components/ui/input"
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import {
   Dialog,
   DialogContent,
@@ -16,6 +17,7 @@ import {
 } from "@/components/ui/dialog"
 import { getAuth } from "@/lib/api"
 import {
+  CompanyJob,
   CompanyApplicant,
   getCompanyApplicants,
   getCompanyJobs,
@@ -33,6 +35,7 @@ const STATUS_LABEL: Record<string, string> = {
 export default function CandidatesPage() {
   const [companyId, setCompanyId] = useState("")
   const [jobId, setJobId] = useState("")
+  const [jobs, setJobs] = useState<CompanyJob[]>([])
   const [applicants, setApplicants] = useState<CompanyApplicant[]>([])
   const [error, setError] = useState("")
   const [info, setInfo] = useState("")
@@ -53,6 +56,7 @@ export default function CandidatesPage() {
     setCompanyId(auth.id)
     getCompanyJobs(auth.id)
       .then((res) => {
+        setJobs(res.jobs)
         if (res.jobs.length > 0) setJobId(res.jobs[0].id)
       })
       .catch(() => {})
@@ -142,13 +146,23 @@ export default function CandidatesPage() {
         <CardContent className="pt-6">
           <div className="grid gap-4 md:grid-cols-3">
             <div className="space-y-2 md:col-span-2">
-              <Label htmlFor="job-id">Job ID (optional filter)</Label>
-              <Input
-                id="job-id"
-                value={jobId}
-                onChange={(e) => setJobId(e.target.value)}
-                placeholder="Leave blank for all job postings"
-              />
+              <Label htmlFor="job-select">Job posting</Label>
+              <Select
+                value={jobId || "__all__"}
+                onValueChange={(value) => setJobId(value === "__all__" ? "" : value)}
+              >
+                <SelectTrigger id="job-select">
+                  <SelectValue placeholder="Select a job posting" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="__all__">All postings</SelectItem>
+                  {jobs.map((job) => (
+                    <SelectItem key={job.id} value={job.id}>
+                      {job.title}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
             <div className="flex items-end">
               <Button onClick={loadApplicants} disabled={isLoading || !companyId} className="w-full">
