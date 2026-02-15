@@ -104,14 +104,14 @@ def _parse_skills(skills_raw: Any) -> List[str]:
 def _fetch_job_vector(job_id: str) -> np.ndarray | None:
     if not _VECDB_PATH.exists() or not job_id:
         return None
-    with sqlite3.connect(_VECDB_PATH) as conn:
-        row = conn.execute(
-            "SELECT vector_json FROM job_vectors WHERE id = ?",
-            (job_id,),
-        ).fetchone()
-    if not row:
-        return None
     try:
+        with sqlite3.connect(_VECDB_PATH) as conn:
+            row = conn.execute(
+                "SELECT vector_json FROM job_vectors WHERE id = ?",
+                (job_id,),
+            ).fetchone()
+        if not row:
+            return None
         return _normalize(np.array(json.loads(row[0]), dtype=np.float32))
     except Exception:
         return None
@@ -120,19 +120,22 @@ def _fetch_job_vector(job_id: str) -> np.ndarray | None:
 def _fetch_user_vectors(user_ids: List[str]) -> Dict[str, np.ndarray]:
     if not _VECDB_PATH.exists() or not user_ids:
         return {}
-    placeholders = ",".join(["?"] * len(user_ids))
-    with sqlite3.connect(_VECDB_PATH) as conn:
-        rows = conn.execute(
-            f"SELECT id, vector_json FROM user_vectors WHERE id IN ({placeholders})",
-            tuple(user_ids),
-        ).fetchall()
-    vectors: Dict[str, np.ndarray] = {}
-    for row in rows:
-        try:
-            vectors[str(row[0])] = _normalize(np.array(json.loads(row[1]), dtype=np.float32))
-        except Exception:
-            continue
-    return vectors
+    try:
+        placeholders = ",".join(["?"] * len(user_ids))
+        with sqlite3.connect(_VECDB_PATH) as conn:
+            rows = conn.execute(
+                f"SELECT id, vector_json FROM user_vectors WHERE id IN ({placeholders})",
+                tuple(user_ids),
+            ).fetchall()
+        vectors: Dict[str, np.ndarray] = {}
+        for row in rows:
+            try:
+                vectors[str(row[0])] = _normalize(np.array(json.loads(row[1]), dtype=np.float32))
+            except Exception:
+                continue
+        return vectors
+    except Exception:
+        return {}
 
 
 def _user_payload_for_initializer(user: Dict[str, Any] | None, app: Dict[str, Any] | None) -> Dict[str, Any]:
@@ -1116,6 +1119,8 @@ def _score_single_batch(
     job_apps: List[Dict],
 ) -> int:
     """Score a single batch of applicants for one job. Returns count scored."""
+    import traceback as _tb
+    print(f"🔵 _score_single_batch called: job={job_id_key}, apps={len(job_apps)}", flush=True)
     job = database.get_job(job_id_key)
     if not job:
         return 0
@@ -1141,13 +1146,19 @@ def _score_single_batch(
     if not candidate_pool:
         return 0
 
-    job_vec, user_vecs = _get_or_initialize_vectors_for_job(job, app_by_user)
+    try:
+        job_vec, user_vecs = _get_or_initialize_vectors_for_job(job, app_by_user)
+    except Exception as e:
+        print(f"⚠️  Two-tower vectors failed (non-fatal): {e}", flush=True)
+        job_vec, user_vecs = None, {}
 
     prompt = "Evaluate each candidate's fit for this role based solely on the job requirements. Score them independently — do not compare them to each other."
     try:
         ranked = _openai_rank_and_analyze_candidates(job, prompt, candidate_pool)
     except Exception as e:
-        print(f"⚠️  OpenAI rank+analyze failed: {e}")
+        import traceback
+        print(f"⚠️  OpenAI rank+analyze failed for job {job_id_key}: {e}")
+        traceback.print_exc()
         ranked = _rank_candidates(prompt, candidate_pool)
 
     now_iso = _utc_now_iso()
@@ -1172,7 +1183,7 @@ def _score_single_batch(
 
         if two_tower_score_01 is None:
             final_score_01 = gpt_score_01
-            blend_summary = f"GPT score {gpt_score}/100 used (two-tower unavailable)."
+            blend_summary = f"Agent score {gpt_score} used (two-tower unavailable)."
         else:
             final_score_01 = (gpt_score_01 + two_tower_score_01) / 2.0
             blend_summary = (
@@ -1254,22 +1265,29 @@ def score_unrated_applicants(
         for i in range(0, len(job_apps), batch_size):
             chunk = job_apps[i:i + batch_size]
             work_items.append((job_id_key, chunk))
+
+    print(f"🟡 score_unrated: {len(unrated)} unrated, {len(by_job)} jobs, {len(work_items)} work items", flush=True)
     
     # Process in parallel with up to 20 threads
     total_scored = 0
+    scoring_errors: List[str] = []
     with ThreadPoolExecutor(max_workers=min(20, len(work_items))) as executor:
         future_to_work = {
             executor.submit(_score_single_batch, company_id, job_id_key, job_apps): (job_id_key, len(job_apps))
             for job_id_key, job_apps in work_items
         }
-        
+
         for future in as_completed(future_to_work):
             try:
                 scored = future.result()
                 total_scored += scored
             except Exception as e:
+                import traceback
                 job_id_key, count = future_to_work[future]
-                print(f"⚠️  Batch scoring failed for job {job_id_key} ({count} applicants): {e}")
+                err_msg = f"Batch scoring failed for job {job_id_key} ({count} applicants): {e}"
+                print(f"⚠️  {err_msg}")
+                traceback.print_exc()
+                scoring_errors.append(err_msg)
     
     # Get refreshed applicant list with new scores
     applicants = database.get_company_applications(company_id, job_id=job_id)
@@ -1288,7 +1306,10 @@ def score_unrated_applicants(
     if total_scored:
         _add_activity(company_id, "Applicant fit scores updated", f"Scored {total_scored} applicants.")
     
-    return {"scored_count": total_scored, "total_unrated": remaining_unrated, "applicants": applicants}
+    result = {"scored_count": total_scored, "total_unrated": remaining_unrated, "applicants": applicants}
+    if scoring_errors:
+        result["scoring_errors"] = scoring_errors
+    return result
 
 
 def generate_custom_report(

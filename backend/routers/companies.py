@@ -119,13 +119,16 @@ def score_applicants(company_id: str, job_id: str | None = None, batch_size: int
         batch_size=batch_size,
         offset=offset,
     )
-    return {
+    resp = {
         "company_id": company_id,
         "job_id": job_id,
         "scored_count": result["scored_count"],
         "total_unrated": result["total_unrated"],
         "applicants": result["applicants"],
     }
+    if result.get("scoring_errors"):
+        resp["scoring_errors"] = result["scoring_errors"]
+    return resp
 
 
 @router.post("/update-application-status")

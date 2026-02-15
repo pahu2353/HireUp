@@ -252,6 +252,15 @@ function CandidatesPage() {
         }
       }
       
+      // Refresh applicant list to get accurate unscored count
+      try {
+        const refreshRes = await getCompanyApplicants(companyId, jobId.trim() || undefined)
+        setApplicants(refreshRes.applicants)
+        setUnscoredCount(refreshRes.applicants.filter((a) => a.fit_score === null).length)
+      } catch {
+        // best effort
+      }
+
       setInfo(
         totalScored > 0
           ? `✓ Scored ${totalScored} applicant${totalScored === 1 ? "" : "s"}.`

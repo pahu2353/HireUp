@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(sqlite3:*)",
+      "Bash(for d in /Users/patrickhuang/.local/share/virtualenvs/backend-*/)",
+      "Bash(do echo \"=== $d ===\")",
+      "Bash(\"$d/bin/python3\" -c \"import bcrypt, numpy; print\\(''OK''\\)\")",
+      "Bash(done)",
+      "Bash(curl:*)",
+      "Bash(python3:*)"
+    ]
+  }
+}
