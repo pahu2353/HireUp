@@ -27,3 +27,13 @@ class SubmitIntervieweeFeedbackRequest(BaseModel):
     job_id: str
     user_id: str
     feedback: str
+
+
+class UpdateCompanyProfileRequest(BaseModel):
+    company_id: str
+    company_name: str = ""
+    website: str = ""
+    description: str = ""
+    company_size: str = ""
+    stage: str = ""
+    culture_benefits: str = ""

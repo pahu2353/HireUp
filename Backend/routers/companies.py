@@ -6,6 +6,7 @@ from schemas.company import (
     TopCandidatesRequest,
     SubmitIntervieweeListRequest,
     SubmitIntervieweeFeedbackRequest,
+    UpdateCompanyProfileRequest,
 )
 from services import company as company_service
 
@@ -55,3 +56,25 @@ def submit_interviewee_feedback(payload: SubmitIntervieweeFeedbackRequest):
         feedback=payload.feedback,
     )
     return {"status": "ok", "feedback": feedback_entry}
+
+
+@router.get("/company-profile")
+def get_company_profile(company_id: str):
+    return company_service.get_company_profile(company_id)
+
+
+@router.put("/company-profile")
+def update_company_profile(payload: UpdateCompanyProfileRequest):
+    profile = company_service.update_company_profile(payload.model_dump())
+    return {"status": "ok", "profile": profile}
+
+
+@router.get("/company-dashboard")
+def get_company_dashboard(company_id: str):
+    return company_service.get_company_dashboard(company_id)
+
+
+@router.get("/company-job-postings")
+def get_company_job_postings(company_id: str):
+    jobs = company_service.list_company_jobs(company_id)
+    return {"company_id": company_id, "jobs": jobs}

@@ -21,12 +21,14 @@ def get_conn() -> sqlite3.Connection:
 
 def init_db() -> None:
     with get_conn() as conn:
-        conn.executescript("""
+        conn.executescript(
+            """
             CREATE TABLE IF NOT EXISTS users (
                 id TEXT PRIMARY KEY,
                 email TEXT UNIQUE NOT NULL,
                 password_hash TEXT NOT NULL,
                 name TEXT,
+                objective TEXT,
                 resume TEXT,
                 resume_pdf BLOB,
                 resume_text TEXT,
@@ -43,6 +45,8 @@ def init_db() -> None:
                 website TEXT,
                 description TEXT,
                 company_size TEXT,
+                stage TEXT,
+                culture_benefits TEXT,
                 account_type TEXT DEFAULT 'company',
                 created_at TEXT DEFAULT (datetime('now'))
             );
@@ -78,55 +82,83 @@ def init_db() -> None:
             CREATE INDEX IF NOT EXISTS idx_jobs_company ON jobs(company_id);
             CREATE INDEX IF NOT EXISTS idx_applications_user ON applications(user_id);
             CREATE INDEX IF NOT EXISTS idx_applications_job ON applications(job_id);
-        """)
-        # Migration: add new columns to existing users table
-        try:
-            conn.execute("ALTER TABLE users ADD COLUMN resume_pdf BLOB")
-        except sqlite3.OperationalError:
-            pass  # column already exists
-        try:
-            conn.execute("ALTER TABLE users ADD COLUMN resume_text TEXT")
-        except sqlite3.OperationalError:
-            pass
-        try:
-            conn.execute("ALTER TABLE users ADD COLUMN career_objective TEXT")
-        except sqlite3.OperationalError:
-            pass
+            """
+        )
+
+        # User migrations
+        for stmt in (
+            "ALTER TABLE users ADD COLUMN resume_pdf BLOB",
+            "ALTER TABLE users ADD COLUMN resume_text TEXT",
+            "ALTER TABLE users ADD COLUMN objective TEXT",
+            "ALTER TABLE users ADD COLUMN career_objective TEXT",
+        ):
+            try:
+                conn.execute(stmt)
+            except sqlite3.OperationalError:
+                pass
+
+        # Company migrations
+        for stmt in (
+            "ALTER TABLE companies ADD COLUMN stage TEXT",
+            "ALTER TABLE companies ADD COLUMN culture_benefits TEXT",
+        ):
+            try:
+                conn.execute(stmt)
+            except sqlite3.OperationalError:
+                pass
 
 
 def hash_password(password: str) -> str:
-    return bcrypt.hashpw(password.encode('utf-8'), bcrypt.gensalt()).decode('utf-8')
+    return bcrypt.hashpw(password.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
 
 
 def verify_password(plain: str, hashed: str) -> bool:
-    return bcrypt.checkpw(plain.encode('utf-8'), hashed.encode('utf-8'))
+    return bcrypt.checkpw(plain.encode("utf-8"), hashed.encode("utf-8"))
 
 
-# --- Users (applicants) ---
+# --- Users ---
 def create_user(
     email: str,
     password: str,
     name: str = "",
+    objective: str = "",
     resume: str = "",
     resume_pdf: bytes | None = None,
     resume_text: str = "",
     interests: str = "[]",
     career_objective: str = "",
     user_id: str | None = None,
-) -> Dict[str, Any]:
+) -> Optional[Dict[str, Any]]:
     if get_user_by_email(email):
-        return None  # caller should raise 409
+        return None
+
     user_id = user_id or str(uuid4())
     with get_conn() as conn:
         conn.execute(
-            """INSERT INTO users (id, email, password_hash, name, resume, resume_pdf, resume_text, interests, career_objective)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (user_id, email, hash_password(password), name, resume, resume_pdf, resume_text, interests, career_objective),
+            """
+            INSERT INTO users (
+                id, email, password_hash, name, objective, resume, resume_pdf, resume_text, interests, career_objective
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                user_id,
+                email,
+                hash_password(password),
+                name,
+                objective,
+                resume,
+                resume_pdf,
+                resume_text,
+                interests,
+                career_objective,
+            ),
         )
+
     return {
         "id": user_id,
         "email": email,
         "name": name,
+        "objective": objective,
         "resume": resume,
         "has_resume_pdf": bool(resume_pdf),
         "resume_text": resume_text,
@@ -139,21 +171,26 @@ def create_user(
 def get_user_by_email(email: str) -> Optional[Dict[str, Any]]:
     with get_conn() as conn:
         row = conn.execute(
-            "SELECT id, email, password_hash, name, resume, resume_pdf, resume_text, interests, career_objective FROM users WHERE email = ?",
+            """
+            SELECT id, email, password_hash, name, objective, resume, resume_pdf, resume_text, interests, career_objective
+            FROM users WHERE email = ?
+            """,
             (email,),
         ).fetchone()
     if not row:
         return None
-    row_dict = dict(row)
+
     return {
-        "id": row_dict["id"],
-        "email": row_dict["email"],
-        "password_hash": row_dict["password_hash"],
-        "name": row_dict.get("name") or "",
-        "resume": row_dict.get("resume") or "",
-        "resume_text": row_dict.get("resume_text") or "",
-        "interests": row_dict.get("interests") or "[]",
-        "career_objective": row_dict.get("career_objective") or "",
+        "id": row["id"],
+        "email": row["email"],
+        "password_hash": row["password_hash"],
+        "name": row["name"] or "",
+        "objective": row["objective"] or "",
+        "resume": row["resume"] or "",
+        "resume_pdf": row["resume_pdf"],
+        "resume_text": row["resume_text"] or "",
+        "interests": row["interests"] or "[]",
+        "career_objective": row["career_objective"] or "",
         "account_type": "user",
     }
 
@@ -165,83 +202,13 @@ def verify_user(email: str, password: str) -> Optional[Dict[str, Any]]:
     return {k: v for k, v in user.items() if k != "password_hash"}
 
 
-# --- Companies ---
-def create_company(
-    email: str,
-    password: str,
-    company_name: str = "",
-    website: str = "",
-    description: str = "",
-    company_size: str = "",
-) -> Dict[str, Any]:
-    if get_company_by_email(email):
-        return None
-    company_id = str(uuid4())
-    with get_conn() as conn:
-        conn.execute(
-            """INSERT INTO companies (id, email, password_hash, company_name, website, description, company_size)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            (company_id, email, hash_password(password), company_name, website, description, company_size),
-        )
-    return {
-        "id": company_id,
-        "email": email,
-        "company_name": company_name,
-        "website": website,
-        "description": description,
-        "company_size": company_size,
-        "account_type": "company",
-    }
-
-
-def get_company_by_email(email: str) -> Optional[Dict[str, Any]]:
-    with get_conn() as conn:
-        row = conn.execute(
-            "SELECT id, email, password_hash, company_name, website, description, company_size FROM companies WHERE email = ?",
-            (email,),
-        ).fetchone()
-    if not row:
-        return None
-    return {
-        "id": row["id"],
-        "email": row["email"],
-        "password_hash": row["password_hash"],
-        "company_name": row["company_name"] or "",
-        "website": row["website"] or "",
-        "description": row["description"] or "",
-        "company_size": row["company_size"] or "",
-        "account_type": "company",
-    }
-
-
-def verify_company(email: str, password: str) -> Optional[Dict[str, Any]]:
-    company = get_company_by_email(email)
-    if not company or not verify_password(password, company["password_hash"]):
-        return None
-    return {k: v for k, v in company.items() if k != "password_hash"}
-
-
-# --- Sessions ---
-def create_session(account_type: str, account_id: str) -> str:
-    token = str(uuid4())
-    with get_conn() as conn:
-        conn.execute("INSERT INTO sessions (token, account_type, account_id) VALUES (?, ?, ?)", (token, account_type, account_id))
-    return token
-
-
-def get_session(token: str) -> Optional[Dict[str, Any]]:
-    with get_conn() as conn:
-        row = conn.execute("SELECT token, account_type, account_id FROM sessions WHERE token = ?", (token,)).fetchone()
-    if not row:
-        return None
-    return {"token": row["token"], "account_type": row["account_type"], "account_id": row["account_id"]}
-
-
-# --- In-memory data we still need (applications, jobs, etc.) - keep in models but allow future DB migration
 def get_user_by_id(user_id: str) -> Optional[Dict[str, Any]]:
     with get_conn() as conn:
         row = conn.execute(
-            "SELECT id, email, name, resume, resume_pdf, resume_text, interests, career_objective FROM users WHERE id = ?",
+            """
+            SELECT id, email, name, objective, resume, resume_pdf, resume_text, interests, career_objective
+            FROM users WHERE id = ?
+            """,
             (user_id,),
         ).fetchone()
     if not row:
@@ -256,11 +223,12 @@ def update_user(
     resume_pdf: bytes | None = None,
     resume_text: str | None = None,
     interests: str | None = None,
+    objective: str | None = None,
     career_objective: str | None = None,
 ) -> bool:
-    """Update user fields. Only updates non-None fields. Returns True if user exists."""
     if not get_user_by_id(user_id):
         return False
+
     updates = []
     params = []
     if name is not None:
@@ -278,26 +246,183 @@ def update_user(
     if interests is not None:
         updates.append("interests = ?")
         params.append(interests)
+    if objective is not None:
+        updates.append("objective = ?")
+        params.append(objective)
     if career_objective is not None:
         updates.append("career_objective = ?")
         params.append(career_objective)
+
     if not updates:
         return True
+
     params.append(user_id)
     with get_conn() as conn:
         conn.execute(f"UPDATE users SET {', '.join(updates)} WHERE id = ?", params)
     return True
 
 
+def update_user_profile(
+    user_id: str,
+    name: str,
+    objective: str,
+    resume: str,
+    interests: str,
+) -> Optional[Dict[str, Any]]:
+    with get_conn() as conn:
+        row = conn.execute("SELECT id FROM users WHERE id = ?", (user_id,)).fetchone()
+        if not row:
+            return None
+        conn.execute(
+            """
+            UPDATE users
+            SET name = ?, objective = ?, career_objective = ?, resume = ?, resume_text = ?, interests = ?
+            WHERE id = ?
+            """,
+            (name, objective, objective, resume, resume, interests, user_id),
+        )
+    return get_user_by_id(user_id)
+
+
+# --- Companies ---
+def create_company(
+    email: str,
+    password: str,
+    company_name: str = "",
+    website: str = "",
+    description: str = "",
+    company_size: str = "",
+    stage: str = "",
+    culture_benefits: str = "",
+) -> Optional[Dict[str, Any]]:
+    if get_company_by_email(email):
+        return None
+
+    company_id = str(uuid4())
+    with get_conn() as conn:
+        conn.execute(
+            """
+            INSERT INTO companies (
+                id, email, password_hash, company_name, website, description, company_size, stage, culture_benefits
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                company_id,
+                email,
+                hash_password(password),
+                company_name,
+                website,
+                description,
+                company_size,
+                stage,
+                culture_benefits,
+            ),
+        )
+
+    return {
+        "id": company_id,
+        "email": email,
+        "company_name": company_name,
+        "website": website,
+        "description": description,
+        "company_size": company_size,
+        "stage": stage,
+        "culture_benefits": culture_benefits,
+        "account_type": "company",
+    }
+
+
+def get_company_by_email(email: str) -> Optional[Dict[str, Any]]:
+    with get_conn() as conn:
+        row = conn.execute(
+            """
+            SELECT id, email, password_hash, company_name, website, description, company_size, stage, culture_benefits
+            FROM companies WHERE email = ?
+            """,
+            (email,),
+        ).fetchone()
+    if not row:
+        return None
+
+    return {
+        "id": row["id"],
+        "email": row["email"],
+        "password_hash": row["password_hash"],
+        "company_name": row["company_name"] or "",
+        "website": row["website"] or "",
+        "description": row["description"] or "",
+        "company_size": row["company_size"] or "",
+        "stage": row["stage"] or "",
+        "culture_benefits": row["culture_benefits"] or "",
+        "account_type": "company",
+    }
+
+
+def verify_company(email: str, password: str) -> Optional[Dict[str, Any]]:
+    company = get_company_by_email(email)
+    if not company or not verify_password(password, company["password_hash"]):
+        return None
+    return {k: v for k, v in company.items() if k != "password_hash"}
+
+
 def get_company_by_id(company_id: str) -> Optional[Dict[str, Any]]:
     with get_conn() as conn:
         row = conn.execute(
-            "SELECT id, email, company_name, website, description, company_size FROM companies WHERE id = ?",
+            """
+            SELECT id, email, company_name, website, description, company_size, stage, culture_benefits
+            FROM companies WHERE id = ?
+            """,
             (company_id,),
         ).fetchone()
     if not row:
         return None
     return dict(row)
+
+
+def update_company_profile(
+    company_id: str,
+    company_name: str,
+    website: str,
+    description: str,
+    company_size: str,
+    stage: str,
+    culture_benefits: str,
+) -> Optional[Dict[str, Any]]:
+    with get_conn() as conn:
+        row = conn.execute("SELECT id FROM companies WHERE id = ?", (company_id,)).fetchone()
+        if not row:
+            return None
+        conn.execute(
+            """
+            UPDATE companies
+            SET company_name = ?, website = ?, description = ?, company_size = ?, stage = ?, culture_benefits = ?
+            WHERE id = ?
+            """,
+            (company_name, website, description, company_size, stage, culture_benefits, company_id),
+        )
+    return get_company_by_id(company_id)
+
+
+# --- Sessions ---
+def create_session(account_type: str, account_id: str) -> str:
+    token = str(uuid4())
+    with get_conn() as conn:
+        conn.execute(
+            "INSERT INTO sessions (token, account_type, account_id) VALUES (?, ?, ?)",
+            (token, account_type, account_id),
+        )
+    return token
+
+
+def get_session(token: str) -> Optional[Dict[str, Any]]:
+    with get_conn() as conn:
+        row = conn.execute(
+            "SELECT token, account_type, account_id FROM sessions WHERE token = ?",
+            (token,),
+        ).fetchone()
+    if not row:
+        return None
+    return {"token": row["token"], "account_type": row["account_type"], "account_id": row["account_id"]}
 
 
 # --- Jobs ---
@@ -312,8 +437,10 @@ def create_job(
     job_id = str(uuid4())
     with get_conn() as conn:
         conn.execute(
-            """INSERT INTO jobs (id, company_id, title, description, skills, location, salary_range)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            """
+            INSERT INTO jobs (id, company_id, title, description, skills, location, salary_range)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
             (job_id, company_id, title, description, skills, location, salary_range),
         )
     return job_id
@@ -322,7 +449,10 @@ def create_job(
 def get_job(job_id: str) -> Optional[Dict[str, Any]]:
     with get_conn() as conn:
         row = conn.execute(
-            "SELECT id, company_id, title, description, skills, location, salary_range, status, created_at FROM jobs WHERE id = ?",
+            """
+            SELECT id, company_id, title, description, skills, location, salary_range, status, created_at
+            FROM jobs WHERE id = ?
+            """,
             (job_id,),
         ).fetchone()
     if not row:
@@ -331,15 +461,16 @@ def get_job(job_id: str) -> Optional[Dict[str, Any]]:
 
 
 def get_all_jobs(status: str = "open") -> List[Dict[str, Any]]:
-    """Get all jobs (optionally filtered by status). For now returns all; later we'll use vector search."""
     with get_conn() as conn:
         rows = conn.execute(
-            """SELECT j.id, j.company_id, j.title, j.description, j.skills, j.location, j.salary_range, j.status, j.created_at,
-                      c.company_name
-               FROM jobs j
-               LEFT JOIN companies c ON j.company_id = c.id
-               WHERE j.status = ?
-               ORDER BY j.created_at DESC""",
+            """
+            SELECT j.id, j.company_id, j.title, j.description, j.skills, j.location, j.salary_range, j.status, j.created_at,
+                   c.company_name
+            FROM jobs j
+            LEFT JOIN companies c ON j.company_id = c.id
+            WHERE j.status = ?
+            ORDER BY j.created_at DESC
+            """,
             (status,),
         ).fetchall()
     return [dict(row) for row in rows]
@@ -348,7 +479,11 @@ def get_all_jobs(status: str = "open") -> List[Dict[str, Any]]:
 def get_jobs_by_company(company_id: str) -> List[Dict[str, Any]]:
     with get_conn() as conn:
         rows = conn.execute(
-            "SELECT id, company_id, title, description, skills, location, salary_range, status, created_at FROM jobs WHERE company_id = ? ORDER BY created_at DESC",
+            """
+            SELECT id, company_id, title, description, skills, location, salary_range, status, created_at
+            FROM jobs WHERE company_id = ?
+            ORDER BY created_at DESC
+            """,
             (company_id,),
         ).fetchall()
     return [dict(row) for row in rows]
@@ -368,13 +503,15 @@ def create_application(user_id: str, job_id: str) -> Dict[str, Any]:
 def get_user_applications(user_id: str) -> List[Dict[str, Any]]:
     with get_conn() as conn:
         rows = conn.execute(
-            """SELECT a.id, a.user_id, a.job_id, a.status, a.created_at,
-                      j.title, j.location, j.salary_range, c.company_name
-               FROM applications a
-               LEFT JOIN jobs j ON a.job_id = j.id
-               LEFT JOIN companies c ON j.company_id = c.id
-               WHERE a.user_id = ?
-               ORDER BY a.created_at DESC""",
+            """
+            SELECT a.id, a.user_id, a.job_id, a.status, a.created_at,
+                   j.title, j.location, j.salary_range, c.company_name
+            FROM applications a
+            LEFT JOIN jobs j ON a.job_id = j.id
+            LEFT JOIN companies c ON j.company_id = c.id
+            WHERE a.user_id = ?
+            ORDER BY a.created_at DESC
+            """,
             (user_id,),
         ).fetchall()
     return [dict(row) for row in rows]

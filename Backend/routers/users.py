@@ -2,7 +2,7 @@
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import Response
 
-from schemas.user import ApplyJobRequest, UpdateProfileRequest
+from schemas.user import ApplyJobRequest, UpdateProfileRequest, UpdateUserProfileRequest
 from services import user as user_service
 import database
 
@@ -41,28 +41,36 @@ def apply_job(payload: ApplyJobRequest):
 
 @router.get("/resume/{user_id}")
 def get_resume(user_id: str):
-    """Download user's resume PDF if available."""
     user = database.get_user_by_id(user_id)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    
+
     resume_pdf = user.get("resume_pdf")
     if not resume_pdf:
         raise HTTPException(status_code=404, detail="No resume PDF found for this user")
-    
+
+    filename = f'{(user.get("name") or "resume").replace(" ", "_")}_resume.pdf'
     return Response(
         content=resume_pdf,
         media_type="application/pdf",
-        headers={
-            "Content-Disposition": f'inline; filename="{user.get("name", "resume").replace(" ", "_")}_resume.pdf"'
-        }
+        headers={"Content-Disposition": f'inline; filename="{filename}"'},
     )
 
 
 @router.get("/applications/{user_id}")
 def get_applications(user_id: str):
-    """Get all applications for a user."""
     if not database.get_user_by_id(user_id):
         raise HTTPException(status_code=404, detail="User not found")
     applications = database.get_user_applications(user_id)
     return {"user_id": user_id, "applications": applications}
+
+
+@router.get("/user-profile")
+def get_user_profile(user_id: str):
+    return user_service.get_user_profile(user_id)
+
+
+@router.put("/user-profile")
+def update_user_profile(payload: UpdateUserProfileRequest):
+    profile = user_service.update_user_profile_v2(payload.model_dump())
+    return {"status": "ok", "profile": profile}

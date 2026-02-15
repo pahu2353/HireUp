@@ -22,85 +22,81 @@ import {
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog"
-import { Plus, Users, Eye } from "lucide-react"
-import { getAuth, createJobPosting, getCompanyJobs } from "@/lib/api"
-import { toast } from "sonner"
-
-interface JobPosting {
-  id: string
-  title: string
-  location: string
-  salary_range: string
-  description: string
-  skills: string[]
-  status: string
-  created_at: string
-}
+import { Plus, Users } from "lucide-react"
+import { getAuth } from "@/lib/api"
+import { createCompanyJobPosting } from "@/lib/company-api"
+import { CompanyPosting, getCompanyPostings, saveCompanyPostings } from "@/lib/company-jobs"
 
 export default function PostingsPage() {
-  const [postings, setPostings] = useState<JobPosting[]>([])
-  const [loading, setLoading] = useState(true)
   const [companyId, setCompanyId] = useState("")
+  const [postings, setPostings] = useState<CompanyPosting[]>([])
   const [open, setOpen] = useState(false)
-  const [creating, setCreating] = useState(false)
   const [newTitle, setNewTitle] = useState("")
   const [newLocation, setNewLocation] = useState("Remote")
   const [newSalary, setNewSalary] = useState("")
   const [newDescription, setNewDescription] = useState("")
-  const [newSkills, setNewSkills] = useState("")
+  const [newRequirements, setNewRequirements] = useState("")
+  const [error, setError] = useState("")
+  const [isCreating, setIsCreating] = useState(false)
 
   useEffect(() => {
     const auth = getAuth()
     if (!auth || auth.accountType !== "company") {
-      window.location.href = "/login"
+      setError("Log in as a company account to create and manage postings.")
       return
     }
     setCompanyId(auth.id)
-    getCompanyJobs(auth.id)
-      .then(setPostings)
-      .catch(() => toast.error("Failed to load job postings"))
-      .finally(() => setLoading(false))
+    setPostings(getCompanyPostings(auth.id))
   }, [])
 
   const handleCreate = async () => {
-    if (!newTitle) {
-      toast.error("Job title is required")
-      return
-    }
-    setCreating(true)
+    if (!newTitle.trim() || !companyId) return
+
+    setError("")
+    setIsCreating(true)
     try {
-      const skills = newSkills.split(",").map((s) => s.trim()).filter(Boolean)
-      const jobId = await createJobPosting({
+      const requirements = newRequirements
+        .split(",")
+        .map((r) => r.trim())
+        .filter(Boolean)
+
+      const response = await createCompanyJobPosting({
         company_id: companyId,
-        title: newTitle,
-        description: newDescription,
-        skills,
-        location: newLocation,
-        salary_range: newSalary,
+        title: newTitle.trim(),
+        description: newDescription.trim(),
+        skills: requirements,
+        location: newLocation.trim() || "Remote",
+        salary_range: newSalary.trim() || "TBD",
       })
-      toast.success("Job posting created successfully!")
-      // Refresh the list
-      const updatedJobs = await getCompanyJobs(companyId)
-      setPostings(updatedJobs)
+
+      const newPosting: CompanyPosting = {
+        id: response.job_id,
+        title: newTitle.trim(),
+        location: newLocation.trim() || "Remote",
+        salary: newSalary.trim() || "TBD",
+        type: "Full-time",
+        description: newDescription.trim(),
+        requirements,
+        applicantCount: 0,
+        status: "active",
+        companyId,
+      }
+
+      const next = [newPosting, ...postings]
+      setPostings(next)
+      saveCompanyPostings(companyId, next)
+
       setNewTitle("")
       setNewLocation("Remote")
       setNewSalary("")
       setNewDescription("")
-      setNewSkills("")
+      setNewRequirements("")
       setOpen(false)
-    } catch (err) {
-      toast.error(err instanceof Error ? err.message : "Failed to create job posting")
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to create posting")
     } finally {
-      setCreating(false)
+      setIsCreating(false)
     }
-  }
-
-  if (loading) {
-    return (
-      <DashboardShell role="company">
-        <p className="text-muted-foreground">Loading job postings...</p>
-      </DashboardShell>
-    )
   }
 
   return (
@@ -109,12 +105,12 @@ export default function PostingsPage() {
         <div>
           <h1 className="text-2xl font-bold text-foreground">Job Postings</h1>
           <p className="mt-1 text-muted-foreground">
-            Manage your open positions.
+            Create postings through the API and manage your open positions.
           </p>
         </div>
         <Dialog open={open} onOpenChange={setOpen}>
           <DialogTrigger asChild>
-            <Button>
+            <Button disabled={!companyId}>
               <Plus className="mr-2 h-4 w-4" />
               New Posting
             </Button>
@@ -123,8 +119,7 @@ export default function PostingsPage() {
             <DialogHeader>
               <DialogTitle>Create Job Posting</DialogTitle>
               <DialogDescription>
-                Fill in the details for your new job posting. Our two-tower model
-                will start matching candidates immediately.
+                This submits directly to the backend `/create-job-posting` endpoint.
               </DialogDescription>
             </DialogHeader>
             <div className="space-y-4 pt-2">
@@ -161,92 +156,76 @@ export default function PostingsPage() {
                 <Label htmlFor="j-desc">Description</Label>
                 <Textarea
                   id="j-desc"
-                  placeholder="Describe the role, responsibilities, and what makes it exciting..."
+                  placeholder="Role details and responsibilities"
                   value={newDescription}
                   onChange={(e) => setNewDescription(e.target.value)}
                   className="min-h-[100px]"
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="j-skills">
-                  Required Skills (comma separated)
-                </Label>
+                <Label htmlFor="j-reqs">Required Skills (comma separated)</Label>
                 <Input
-                  id="j-skills"
+                  id="j-reqs"
                   placeholder="e.g., React, TypeScript, Python"
-                  value={newSkills}
-                  onChange={(e) => setNewSkills(e.target.value)}
+                  value={newRequirements}
+                  onChange={(e) => setNewRequirements(e.target.value)}
                 />
               </div>
-              <Button className="w-full" onClick={handleCreate} disabled={creating}>
-                {creating ? "Creating..." : "Create Posting"}
+              <Button className="w-full" onClick={handleCreate} disabled={isCreating}>
+                {isCreating ? "Creating..." : "Create Posting"}
               </Button>
             </div>
           </DialogContent>
         </Dialog>
       </div>
 
-      {postings.length === 0 ? (
-        <Card>
-          <CardContent className="py-8 text-center">
-            <p className="text-muted-foreground">
-              No job postings yet. Create your first posting to start matching with candidates!
-            </p>
-          </CardContent>
-        </Card>
-      ) : (
-        <div className="space-y-4">
-          {postings.map((posting) => (
-            <Card key={posting.id}>
-              <CardHeader className="pb-3">
-                <div className="flex items-start justify-between">
-                  <div>
-                    <CardTitle className="text-lg">{posting.title}</CardTitle>
-                    <CardDescription>
-                      {posting.location} &middot; {posting.salary_range}
-                    </CardDescription>
-                  </div>
-                  <Badge
-                    variant="secondary"
-                    className={
-                      posting.status === "open"
-                        ? "bg-primary/10 text-primary"
-                        : "bg-secondary text-muted-foreground"
-                    }
-                  >
-                    {posting.status}
+      {error ? <p className="mb-4 text-sm text-destructive">{error}</p> : null}
+
+      <div className="space-y-4">
+        {postings.map((posting) => (
+          <Card key={posting.id}>
+            <CardHeader className="pb-3">
+              <div className="flex items-start justify-between">
+                <div>
+                  <CardTitle className="text-lg">{posting.title}</CardTitle>
+                  <CardDescription>
+                    {posting.location} &middot; {posting.salary} &middot; {posting.type}
+                  </CardDescription>
+                </div>
+                <Badge
+                  variant="secondary"
+                  className={
+                    posting.status === "active"
+                      ? "bg-primary/10 text-primary"
+                      : "bg-secondary text-muted-foreground"
+                  }
+                >
+                  {posting.status}
+                </Badge>
+              </div>
+            </CardHeader>
+            <CardContent>
+              <p className="mb-4 text-sm leading-relaxed text-muted-foreground">
+                {posting.description}
+              </p>
+              <div className="mb-4 flex flex-wrap gap-2">
+                {posting.requirements.map((req) => (
+                  <Badge key={req} variant="secondary" className="text-xs">
+                    {req}
                   </Badge>
-                </div>
-              </CardHeader>
-              <CardContent>
-                <p className="mb-4 text-sm text-muted-foreground leading-relaxed">
-                  {posting.description || "No description provided."}
-                </p>
-                <div className="mb-4 flex flex-wrap gap-2">
-                  {posting.skills.map((skill) => (
-                    <Badge key={skill} variant="secondary" className="text-xs">
-                      {skill}
-                    </Badge>
-                  ))}
-                </div>
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                    <span className="flex items-center gap-1">
-                      <Users className="h-3.5 w-3.5" />
-                      matched applicants
-                    </span>
-                  </div>
-                  <Button variant="outline" size="sm">
-                    <Eye className="mr-1 h-3.5 w-3.5" />
-                    View Candidates
-                  </Button>
-                </div>
-              </CardContent>
-            </Card>
-          ))}
-        </div>
-      )}
+                ))}
+              </div>
+              <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                <span className="flex items-center gap-1">
+                  <Users className="h-3.5 w-3.5" />
+                  {posting.applicantCount} matched applicants
+                </span>
+                <span className="text-xs">Job ID: {posting.id}</span>
+              </div>
+            </CardContent>
+          </Card>
+        ))}
+      </div>
     </DashboardShell>
   )
 }
-

@@ -1,119 +1,99 @@
 "use client"
 
+import { useEffect, useState } from "react"
 import { DashboardShell } from "@/components/dashboard/dashboard-shell"
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card"
-import { FileText, Users, MessageSquare, TrendingUp } from "lucide-react"
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
+import { FileText, MessageSquare, TrendingUp, Users } from "lucide-react"
+import { getAuth } from "@/lib/api"
+import { CompanyDashboardResponse, getCompanyDashboard } from "@/lib/company-api"
 
-const stats = [
-  {
-    label: "Active Postings",
-    value: "3",
-    icon: FileText,
-    change: "+1 this week",
-  },
-  {
-    label: "Total Applicants",
-    value: "147",
-    icon: Users,
-    change: "Filtered to 50 top fits",
-  },
-  {
-    label: "AI Agent Queries",
-    value: "24",
-    icon: MessageSquare,
-    change: "Last 7 days",
-  },
-  {
-    label: "Interview Rate",
-    value: "68%",
-    icon: TrendingUp,
-    change: "vs 12% industry avg",
-  },
-]
+const statConfig = [
+  { label: "Active Postings", key: "active_postings", icon: FileText },
+  { label: "Total Applicants", key: "total_applicants", icon: Users },
+  { label: "AI Agent Queries", key: "ai_agent_queries", icon: MessageSquare },
+  { label: "Interview Rate", key: "interview_rate_percent", icon: TrendingUp },
+] as const
 
 export default function CompanyDashboard() {
+  const [dashboard, setDashboard] = useState<CompanyDashboardResponse | null>(null)
+  const [error, setError] = useState("")
+
+  useEffect(() => {
+    const auth = getAuth()
+    if (!auth || auth.accountType !== "company") {
+      setError("Log in as a company account to view dashboard data.")
+      return
+    }
+    getCompanyDashboard(auth.id)
+      .then((data) => setDashboard(data))
+      .catch((e) => setError(e instanceof Error ? e.message : "Failed to load dashboard"))
+  }, [])
+
   return (
     <DashboardShell role="company">
       <div className="mb-8">
         <h1 className="text-2xl font-bold text-foreground">Dashboard</h1>
         <p className="mt-1 text-muted-foreground">
-          Welcome back. Here{"'"}s an overview of your hiring pipeline.
+          Live overview from company backend endpoints.
         </p>
       </div>
 
+      {error ? <p className="mb-4 text-sm text-destructive">{error}</p> : null}
+
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {stats.map((stat) => (
-          <Card key={stat.label}>
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">
-                {stat.label}
-              </CardTitle>
-              <stat.icon className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <p className="text-2xl font-bold text-foreground">{stat.value}</p>
-              <p className="text-xs text-muted-foreground">{stat.change}</p>
-            </CardContent>
-          </Card>
-        ))}
+        {statConfig.map((stat) => {
+          let value = "0"
+          let change = "No recent updates"
+          if (dashboard) {
+            if (stat.key === "interview_rate_percent") {
+              value = `${dashboard.stats.interview_rate_percent}%`
+              change = "Based on feedback vs interview list"
+            } else {
+              value = String(dashboard.stats[stat.key])
+              change = "From current company activity"
+            }
+          }
+          return (
+            <Card key={stat.label}>
+              <CardHeader className="flex flex-row items-center justify-between pb-2">
+                <CardTitle className="text-sm font-medium text-muted-foreground">{stat.label}</CardTitle>
+                <stat.icon className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <p className="text-2xl font-bold text-foreground">{value}</p>
+                <p className="text-xs text-muted-foreground">{change}</p>
+              </CardContent>
+            </Card>
+          )
+        })}
       </div>
 
       <div className="mt-8">
         <Card>
           <CardHeader>
             <CardTitle>Recent Activity</CardTitle>
-            <CardDescription>
-              Latest updates from your hiring pipeline.
-            </CardDescription>
+            <CardDescription>Latest updates from your backend-tracked hiring pipeline.</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="space-y-4">
-              {[
-                {
-                  action: "New applicant matched",
-                  detail: "Sarah K. matched to Full-Stack Engineer (96% fit)",
-                  time: "2h ago",
-                },
-                {
-                  action: "AI Agent completed search",
-                  detail: 'Found 8 candidates matching "strong React + ML experience"',
-                  time: "5h ago",
-                },
-                {
-                  action: "Interview feedback submitted",
-                  detail: "Michael R. - Backend Engineer: Strong technical, good culture fit",
-                  time: "1d ago",
-                },
-                {
-                  action: "New job posting live",
-                  detail: "DevOps Engineer posting is now receiving matches",
-                  time: "2d ago",
-                },
-              ].map((activity, i) => (
+              {(dashboard?.recent_activity ?? []).map((activity, i) => (
                 <div
-                  key={i}
+                  key={`${activity.time}-${i}`}
                   className="flex items-start gap-3 border-b border-border pb-4 last:border-0 last:pb-0"
                 >
                   <div className="mt-1 h-2 w-2 rounded-full bg-primary" />
                   <div className="flex-1">
-                    <p className="text-sm font-medium text-foreground">
-                      {activity.action}
-                    </p>
-                    <p className="text-sm text-muted-foreground">
-                      {activity.detail}
-                    </p>
+                    <p className="text-sm font-medium text-foreground">{activity.action}</p>
+                    <p className="text-sm text-muted-foreground">{activity.detail}</p>
                   </div>
-                  <span className="text-xs text-muted-foreground whitespace-nowrap">
-                    {activity.time}
+                  <span className="whitespace-nowrap text-xs text-muted-foreground">
+                    {new Date(activity.time).toLocaleString()}
                   </span>
                 </div>
               ))}
+              {!dashboard?.recent_activity?.length ? (
+                <p className="text-sm text-muted-foreground">No recent activity yet.</p>
+              ) : null}
             </div>
           </CardContent>
         </Card>
