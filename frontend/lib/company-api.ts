@@ -89,11 +89,16 @@ export interface CompanyApplicant {
   resume_text: string
   skills: string[]
   technical_score: number | null
+  fit_score: number | null
+  fit_reasoning: string
+  fit_scored_at: string | null
+  skill_analysis: string
+  skill_analysis_summary: string
 }
 
 export interface CandidateSkillAnalysis {
   mode: "general" | "job_specific"
-  source: "openai" | "fallback"
+  source: "openai" | "fallback" | "cached"
   summary: string
   skills: Array<{ name: string; score: number }>
 }
@@ -194,6 +199,21 @@ export async function getCompanyApplicants(companyId: string, jobId?: string) {
   return data as { company_id: string; job_id?: string; applicants: CompanyApplicant[] }
 }
 
+export async function scoreApplicants(companyId: string, jobId?: string, batchSize: number = 20, offset: number = 0) {
+  const qs = new URLSearchParams({ company_id: companyId, batch_size: String(batchSize), offset: String(offset) })
+  if (jobId) qs.set("job_id", jobId)
+  const res = await fetch(`${getApiUrl("/score-applicants")}?${qs.toString()}`, { method: "POST" })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error((data as { detail?: string }).detail ?? "Request failed")
+  return data as { 
+    company_id: string
+    job_id?: string
+    scored_count: number
+    total_unrated: number
+    applicants: CompanyApplicant[]
+  }
+}
+
 export async function updateApplicationStatus(payload: {
   company_id: string
   application_id: string
@@ -209,4 +229,49 @@ export async function analyzeCandidateSkills(payload: {
   job_id?: string
 }) {
   return postJson<{ status: string; analysis: CandidateSkillAnalysis }>("/analyze-candidate-skills", payload)
+}
+
+
+// --- Agent Chat Persistence ---
+
+export interface AgentMessageRecord {
+  id: string
+  role: "user" | "assistant"
+  content: string
+  candidates?: TopCandidate[]
+  rankingSource?: string
+}
+
+export async function getAgentMessages(companyId: string) {
+  const url = `${getApiUrl("/agent-messages")}?company_id=${encodeURIComponent(companyId)}`
+  const res = await fetch(url)
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error((data as { detail?: string }).detail ?? "Request failed")
+  return data as { company_id: string; messages: AgentMessageRecord[] }
+}
+
+export async function saveAgentMessages(
+  companyId: string,
+  messages: Array<{
+    message_id: string
+    role: string
+    content: string
+    candidates?: string
+    ranking_source?: string
+  }>,
+) {
+  return postJson<{ status: string; count: number }>("/agent-messages", {
+    company_id: companyId,
+    messages: messages.map((m) => ({ company_id: companyId, ...m })),
+  })
+}
+
+export async function clearAgentMessages(companyId: string) {
+  const res = await fetch(
+    `${getApiUrl("/agent-messages")}?company_id=${encodeURIComponent(companyId)}`,
+    { method: "DELETE" },
+  )
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error((data as { detail?: string }).detail ?? "Request failed")
+  return data
 }

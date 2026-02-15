@@ -17,7 +17,15 @@ import {
 import { cn } from "@/lib/utils"
 import { Bot, FileText, Search, Send, Sparkles, Trash2, User, UserCheck, Zap } from "lucide-react"
 import { getAuth, getApiUrl } from "@/lib/api"
-import { CompanyJob, getCompanyJobs, getTopCandidates, TopCandidate } from "@/lib/company-api"
+import {
+  CompanyJob,
+  getCompanyJobs,
+  getTopCandidates,
+  TopCandidate,
+  getAgentMessages,
+  saveAgentMessages,
+  clearAgentMessages,
+} from "@/lib/company-api"
 
 interface Message {
   id: string
@@ -41,8 +49,6 @@ const WELCOME_MESSAGE: Message = {
     "Hi! I'm your AI recruiting assistant. Describe the ideal candidate you're looking for — skills, experience, or role type — and I'll rank your applicants to find the best matches. Select a job posting above to get started.",
 }
 
-const STORAGE_KEY = "hireup_agent_history"
-
 export default function AgentPage() {
   const [messages, setMessages] = useState<Message[]>([WELCOME_MESSAGE])
   const [input, setInput] = useState("")
@@ -51,30 +57,41 @@ export default function AgentPage() {
   const [isTyping, setIsTyping] = useState(false)
   const [agentMode, setAgentMode] = useState(false)
   const [error, setError] = useState("")
+  const [companyId, setCompanyId] = useState("")
   const scrollRef = useRef<HTMLDivElement>(null)
   const [resumeModalUser, setResumeModalUser] = useState<{ userId: string; name: string } | null>(null)
 
-  // Restore from localStorage on mount (client-only, avoids hydration mismatch)
+  // Load messages from DB on mount
   useEffect(() => {
-    try {
-      const raw = localStorage.getItem(STORAGE_KEY)
-      if (raw) {
-        const parsed = JSON.parse(raw) as Message[]
-        if (Array.isArray(parsed) && parsed.length > 0) setMessages(parsed)
-      }
-    } catch {
-      // ignore corrupt data
+    const auth = getAuth()
+    if (!auth || auth.accountType !== "company") {
+      setError("Log in as a company account to use the recruiting agent.")
+      return
     }
-  }, [])
+    setCompanyId(auth.id)
 
-  // Persist messages to localStorage whenever they change
-  useEffect(() => {
-    try {
-      localStorage.setItem(STORAGE_KEY, JSON.stringify(messages))
-    } catch {
-      // storage full or unavailable — silently ignore
-    }
-  }, [messages])
+    // Load jobs and chat history in parallel
+    Promise.all([getCompanyJobs(auth.id), getAgentMessages(auth.id)])
+      .then(([jobsRes, msgsRes]) => {
+        setJobs(jobsRes.jobs)
+        if (jobsRes.jobs.length > 0) setJobId(jobsRes.jobs[0].id)
+
+        if (msgsRes.messages.length > 0) {
+          setMessages(
+            msgsRes.messages.map((m) => ({
+              id: m.id,
+              role: m.role,
+              content: m.content,
+              candidates: m.candidates && m.candidates.length > 0 ? m.candidates : undefined,
+              rankingSource: (m.rankingSource as Message["rankingSource"]) || undefined,
+            })),
+          )
+        }
+      })
+      .catch((e) => {
+        setError(e instanceof Error ? e.message : "Failed to load data")
+      })
+  }, [])
 
   useEffect(() => {
     if (scrollRef.current) {
@@ -82,27 +99,28 @@ export default function AgentPage() {
     }
   }, [messages, isTyping])
 
-  useEffect(() => {
-    const auth = getAuth()
-    if (!auth || auth.accountType !== "company") {
-      setError("Log in as a company account to use the recruiting agent.")
-      return
+  // Persist new messages to DB
+  const persistMessages = (msgs: Message[]) => {
+    if (!companyId) return
+    const toSave = msgs
+      .filter((m) => m.id !== "welcome")
+      .map((m) => ({
+        message_id: m.id,
+        role: m.role,
+        content: m.content,
+        candidates: JSON.stringify(m.candidates ?? []),
+        ranking_source: m.rankingSource ?? "",
+      }))
+    if (toSave.length > 0) {
+      saveAgentMessages(companyId, toSave).catch(() => {})
     }
-
-    getCompanyJobs(auth.id)
-      .then((res) => {
-        setJobs(res.jobs)
-        if (res.jobs.length > 0) {
-          setJobId(res.jobs[0].id)
-        }
-      })
-      .catch((e) => {
-        setError(e instanceof Error ? e.message : "Failed to load job postings")
-      })
-  }, [])
+  }
 
   const clearHistory = () => {
     setMessages([WELCOME_MESSAGE])
+    if (companyId) {
+      clearAgentMessages(companyId).catch(() => {})
+    }
   }
 
   const handleSend = async (e?: FormEvent) => {
@@ -119,6 +137,8 @@ export default function AgentPage() {
     setMessages((prev) => [...prev, userMessage])
     setInput("")
     setIsTyping(true)
+
+    const newMessages: Message[] = [userMessage]
 
     try {
       if (jobId === "__all__") {
@@ -143,12 +163,13 @@ export default function AgentPage() {
               : ""
           return {
             id: String(Date.now() + 1 + idx),
-            role: "assistant",
+            role: "assistant" as const,
             content: `Ranked ${response.top_candidates.length} candidates for ${jobTitle} using ${sourceLabel}. Top picks: ${topNames || "None"}.${note}`,
             candidates: response.top_candidates,
-            rankingSource: response.ranking_source ?? "unknown",
+            rankingSource: (response.ranking_source ?? "unknown") as Message["rankingSource"],
           }
         })
+        newMessages.push(...assistantMessages)
         setMessages((prev) => [...prev, ...assistantMessages])
       } else {
         const response = await getTopCandidates(jobId.trim(), prompt)
@@ -167,23 +188,24 @@ export default function AgentPage() {
           role: "assistant",
           content: `Ranked ${response.top_candidates.length} candidates for ${jobTitle} using ${sourceLabel}. Top picks: ${topNames || "None"}.${note}`,
           candidates: response.top_candidates,
-          rankingSource: response.ranking_source ?? "unknown",
+          rankingSource: (response.ranking_source ?? "unknown") as Message["rankingSource"],
         }
+        newMessages.push(assistantMessage)
         setMessages((prev) => [...prev, assistantMessage])
       }
     } catch (err) {
       const msg = err instanceof Error ? err.message : "Failed to fetch candidates"
       setError(msg)
-      setMessages((prev) => [
-        ...prev,
-        {
-          id: String(Date.now() + 1),
-          role: "assistant",
-          content: `Request failed: ${msg}`,
-        },
-      ])
+      const errorMessage: Message = {
+        id: String(Date.now() + 1),
+        role: "assistant",
+        content: `Request failed: ${msg}`,
+      }
+      newMessages.push(errorMessage)
+      setMessages((prev) => [...prev, errorMessage])
     } finally {
       setIsTyping(false)
+      persistMessages(newMessages)
     }
   }
 

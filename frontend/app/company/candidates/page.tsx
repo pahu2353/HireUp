@@ -1,6 +1,6 @@
 "use client"
 
-import { useEffect, useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { DashboardShell } from "@/components/dashboard/dashboard-shell"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -24,6 +24,7 @@ import {
   CompanyJob,
   getCompanyApplicants,
   getCompanyJobs,
+  scoreApplicants,
   updateApplicationStatus,
 } from "@/lib/company-api"
 import {
@@ -50,11 +51,16 @@ export default function CandidatesPage() {
   const [error, setError] = useState("")
   const [info, setInfo] = useState("")
   const [isLoading, setIsLoading] = useState(false)
+  const [isScoring, setIsScoring] = useState(false)
+  const [scoringProgress, setScoringProgress] = useState(0)
   const [isUpdating, setIsUpdating] = useState<string | null>(null)
+  const [sortBy, setSortBy] = useState<"fit_desc" | "date_desc" | "date_asc" | "status">("date_desc")
+  const [unscoredCount, setUnscoredCount] = useState(0)
   const [selectedCandidateId, setSelectedCandidateId] = useState<string>("")
 
   const [analysisByCandidate, setAnalysisByCandidate] = useState<Record<string, CandidateSkillAnalysis>>({})
   const [analysisLoadingFor, setAnalysisLoadingFor] = useState<string | null>(null)
+  const [analysisErrorFor, setAnalysisErrorFor] = useState<Record<string, string>>({})
   const [detailsModalCandidate, setDetailsModalCandidate] = useState<CompanyApplicant | null>(null)
 
   const [resumeModalUser, setResumeModalUser] = useState<{ userId: string; name: string } | null>(null)
@@ -72,12 +78,22 @@ export default function CandidatesPage() {
       return
     }
     setCompanyId(auth.id)
-    getCompanyJobs(auth.id)
-      .then((res) => {
+    
+    const init = async () => {
+      try {
+        const res = await getCompanyJobs(auth.id)
         setJobs(res.jobs)
-        if (res.jobs.length > 0) setJobId(res.jobs[0].id)
-      })
-      .catch(() => {})
+
+        // Auto-load all applicants (newest first by default)
+        const countsRes = await getCompanyApplicants(auth.id)
+        setApplicants(countsRes.applicants)
+        setUnscoredCount(countsRes.applicants.filter((a) => a.fit_score === null).length)
+        setInfo(`Loaded ${countsRes.applicants.length} applicants across all postings.`)
+      } catch (e) {
+        setError(e instanceof Error ? e.message : "Failed to load data")
+      }
+    }
+    init()
   }, [])
 
   const loadApplicants = async () => {
@@ -88,6 +104,9 @@ export default function CandidatesPage() {
     try {
       const res = await getCompanyApplicants(companyId, jobId.trim() || undefined)
       setApplicants(res.applicants)
+      const unscored = res.applicants.filter((a) => a.fit_score === null).length
+      setUnscoredCount(unscored)
+
       const jobTitle = jobId ? jobs.find((j) => j.id === jobId)?.title ?? "selected job" : null
       setInfo(
         jobTitle === null
@@ -104,8 +123,11 @@ export default function CandidatesPage() {
 
   const loadCandidateAnalysis = async (candidate: CompanyApplicant) => {
     if (!companyId) return
-    setError("")
     setAnalysisLoadingFor(candidate.application_id)
+    setAnalysisErrorFor((prev) => {
+      const { [candidate.application_id]: _, ...rest } = prev
+      return rest
+    })
     try {
       const analysisJobId = jobId || candidate.job_id
       const res = await analyzeCandidateSkills({
@@ -115,7 +137,8 @@ export default function CandidatesPage() {
       })
       setAnalysisByCandidate((prev) => ({ ...prev, [candidate.application_id]: res.analysis }))
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to analyze candidate")
+      const errorMsg = e instanceof Error ? e.message : "Failed to analyze candidate"
+      setAnalysisErrorFor((prev) => ({ ...prev, [candidate.application_id]: errorMsg }))
     } finally {
       setAnalysisLoadingFor(null)
     }
@@ -126,6 +149,55 @@ export default function CandidatesPage() {
     setDetailsModalCandidate(candidate)
     if (!analysisByCandidate[candidate.application_id]) {
       loadCandidateAnalysis(candidate)
+    }
+  }
+
+  const scoreNewApplicants = async () => {
+    if (!companyId) return
+    setError("")
+    setIsScoring(true)
+    setScoringProgress(0)
+    setInfo(`Scoring applicants... 0% (0 scored, ${unscoredCount} remaining)`)
+    
+    try {
+      const BATCH_SIZE = 20
+      let offset = 0
+      let totalScored = 0
+      let remaining = unscoredCount
+      
+      while (remaining > 0) {
+        const res = await scoreApplicants(companyId, jobId.trim() || undefined, BATCH_SIZE, offset)
+        
+        totalScored += res.scored_count
+        remaining = res.total_unrated
+        
+        // Update progress
+        const progress = unscoredCount > 0 
+          ? Math.round(((unscoredCount - remaining) / unscoredCount) * 100)
+          : 100
+        setScoringProgress(progress)
+        setInfo(`Scoring applicants... ${progress}% (${totalScored} scored, ${remaining} remaining)`)
+        
+        // Update applicants list with latest scores
+        setApplicants(res.applicants)
+        setUnscoredCount(remaining)
+        
+        if (remaining === 0) break
+        offset += BATCH_SIZE
+      }
+      
+      setInfo(
+        totalScored > 0
+          ? `✓ Scored ${totalScored} applicant${totalScored === 1 ? "" : "s"}.`
+          : "All applicants are already scored."
+      )
+      setScoringProgress(100)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to score applicants")
+    } finally {
+      setIsScoring(false)
+      // Reset progress after a brief delay
+      setTimeout(() => setScoringProgress(0), 2000)
     }
   }
 
@@ -187,6 +259,24 @@ export default function CandidatesPage() {
     setTechnicalScore("")
   }
 
+  const sortedApplicants = useMemo(() => {
+    const copy = [...applicants]
+    if (sortBy === "fit_desc") {
+      copy.sort((a, b) => (b.fit_score ?? -1) - (a.fit_score ?? -1))
+      return copy
+    }
+    if (sortBy === "date_desc") {
+      copy.sort((a, b) => (Date.parse(b.created_at || "") || 0) - (Date.parse(a.created_at || "") || 0))
+      return copy
+    }
+    if (sortBy === "date_asc") {
+      copy.sort((a, b) => (Date.parse(a.created_at || "") || 0) - (Date.parse(b.created_at || "") || 0))
+      return copy
+    }
+    copy.sort((a, b) => (STATUS_LABEL[a.status] || a.status).localeCompare(STATUS_LABEL[b.status] || b.status))
+    return copy
+  }, [applicants, sortBy])
+
   return (
     <DashboardShell role="company">
       <div className="mb-8">
@@ -196,7 +286,7 @@ export default function CandidatesPage() {
 
       <Card className="mb-4">
         <CardContent className="pt-6">
-          <div className="grid gap-4 md:grid-cols-3">
+          <div className="grid gap-4 md:grid-cols-4">
             <div className="space-y-2 md:col-span-2">
               <Label htmlFor="job-select">Job posting</Label>
               <Select
@@ -216,6 +306,20 @@ export default function CandidatesPage() {
                 </SelectContent>
               </Select>
             </div>
+            <div className="space-y-2">
+              <Label htmlFor="sort-select">Sort applicants</Label>
+              <Select value={sortBy} onValueChange={(value) => setSortBy(value as typeof sortBy)}>
+                <SelectTrigger id="sort-select">
+                  <SelectValue placeholder="Sort by" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="date_desc">Application date (newest)</SelectItem>
+                  <SelectItem value="fit_desc">Strongest fit (fit score)</SelectItem>
+                  <SelectItem value="date_asc">Application date (oldest)</SelectItem>
+                  <SelectItem value="status">Application status</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
             <div className="flex items-end">
               <Button onClick={loadApplicants} disabled={isLoading || !companyId} className="w-full">
                 {isLoading ? "Loading..." : "Load Applicants"}
@@ -225,11 +329,43 @@ export default function CandidatesPage() {
         </CardContent>
       </Card>
 
+      {unscoredCount > 0 && (
+        <div className="mb-4 flex items-center justify-between rounded-lg border border-border bg-muted/30 px-4 py-3">
+          <div className="flex-1">
+            <p className="text-sm font-medium text-foreground">
+              {unscoredCount} new applicant{unscoredCount === 1 ? "" : "s"} pending fit score
+            </p>
+            <p className="text-xs text-muted-foreground">
+              New applicants have not been fit-scored yet.
+            </p>
+          </div>
+          <Button
+            onClick={scoreNewApplicants}
+            disabled={isScoring || !companyId}
+            variant="secondary"
+          >
+            {isScoring ? "Scoring..." : "Score Now"}
+          </Button>
+        </div>
+      )}
+
       {error ? <p className="mb-4 text-sm text-destructive">{error}</p> : null}
-      {info ? <p className="mb-4 text-sm text-muted-foreground">{info}</p> : null}
+      {info ? (
+        <div className="mb-4 space-y-2">
+          <p className="text-sm text-muted-foreground">{info}</p>
+          {isScoring && (
+            <div className="h-2 w-full overflow-hidden rounded-full bg-muted">
+              <div
+                className="h-full bg-primary transition-all duration-300 ease-out"
+                style={{ width: `${scoringProgress}%` }}
+              />
+            </div>
+          )}
+        </div>
+      ) : null}
 
       <div className="space-y-3">
-        {applicants.map((candidate) => {
+        {sortedApplicants.map((candidate) => {
           const canMoveFromSubmitted = candidate.status === "submitted"
           const canMoveFromInProgress = candidate.status === "in_progress"
           return (
@@ -238,19 +374,24 @@ export default function CandidatesPage() {
               onClick={() => openDetailsModal(candidate)}
               className={
                 selectedCandidateId === candidate.application_id
-                  ? "border-primary/50 hover:border-primary/60"
-                  : "hover:border-primary/30"
+                  ? "cursor-pointer border-primary/50 hover:border-primary/60"
+                  : "cursor-pointer hover:border-primary/30"
               }
             >
               <CardHeader className="pb-2">
                 <div className="flex items-center justify-between gap-3">
-                  <div>
+                  <div className="flex-1">
                     <CardTitle className="text-base">{candidate.user_name || "Unknown"}</CardTitle>
                     <CardDescription>
                       {candidate.user_email} • {candidate.job_title}
                     </CardDescription>
                   </div>
                   <div className="flex items-center gap-3">
+                    {candidate.fit_score !== null && (
+                      <div className="rounded-full bg-primary/10 px-2.5 py-1">
+                        <span className="text-xs font-semibold text-primary">{candidate.fit_score}</span>
+                      </div>
+                    )}
                     <button
                       className="text-xs font-medium text-primary underline-offset-2 hover:underline"
                       onClick={(e) => {
@@ -289,9 +430,16 @@ export default function CandidatesPage() {
                     </Badge>
                   ))}
                 </div>
-                <div className="mb-3 text-xs text-muted-foreground">
-                  Technical score: {candidate.technical_score ?? "-"}
-                </div>
+                {candidate.fit_score !== null && candidate.fit_reasoning && (
+                  <div className="mb-3 text-xs text-muted-foreground leading-relaxed">
+                    {candidate.fit_reasoning}
+                  </div>
+                )}
+                {candidate.status === "in_progress" && candidate.technical_score !== null && (
+                  <div className="mb-3 text-xs text-muted-foreground">
+                    Technical interview score: {candidate.technical_score}/10
+                  </div>
+                )}
                 <div className="flex flex-wrap gap-2">
                   {canMoveFromSubmitted ? (
                     <>
@@ -374,6 +522,12 @@ export default function CandidatesPage() {
             <>
               {analysisLoadingFor === detailsModalCandidate.application_id ? (
                 <p className="text-sm text-muted-foreground">Analyzing candidate skills...</p>
+              ) : analysisErrorFor[detailsModalCandidate.application_id] ? (
+                <div className="rounded-lg border border-amber-200 bg-amber-50 p-4">
+                  <p className="text-sm text-amber-800">
+                    {analysisErrorFor[detailsModalCandidate.application_id]}
+                  </p>
+                </div>
               ) : (
                 <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                   <div className="rounded-2xl border border-border/60 bg-muted/20 p-3">

@@ -260,8 +260,8 @@ def _extract_json_blob(text: str) -> Dict:
         return {}
 
 
-def _openai_rank_candidates(job: Dict, prompt: str, candidates: List[Dict]) -> List[Dict]:
-    """Use OpenAI chat completions to score candidates for a job."""
+def _openai_rank_and_analyze_candidates(job: Dict, prompt: str, candidates: List[Dict]) -> List[Dict]:
+    """Use OpenAI to score candidates AND analyze their skills in one call."""
     api_key = _read_env_value("OPENAI_API_KEY")
     if not api_key:
         raise RuntimeError("OPENAI_API_KEY not set")
@@ -278,11 +278,15 @@ def _openai_rank_candidates(job: Dict, prompt: str, candidates: List[Dict]) -> L
         )
 
     system_msg = (
-        "You are a recruiting ranking assistant. "
-        "Given a job and recruiter prompt, score each candidate 0-100. "
+        "You are a recruiting fit-scoring and skill analysis assistant. "
+        "For each candidate, provide TWO outputs: (1) fit score and reasoning, (2) skill breakdown. "
+        "CRITICAL: Score each candidate independently and absolutely against the job description. "
+        "Do NOT compare candidates to each other. Do NOT adjust scores based on the strength of other candidates in this batch. "
+        "A candidate's score should be the same whether they are scored alone or with 100 others. "
         "Return strict JSON only with shape: "
-        '{"ranked":[{"user_id":"...","score":0,"reasoning":"..."}]}. '
-        "Score should reflect skill match, experience relevance, how cracked they are, and prompt fit."
+        '{"ranked":[{"user_id":"...","score":0,"reasoning":"...","skills":[{"name":"...","score":0}],"skill_summary":"..."}]}. '
+        "For skills: analyze ONLY the job-required skills. Score each 0-100 based on resume evidence. "
+        "Provide a brief skill_summary (1-2 sentences) describing overall technical strengths."
     )
     user_msg = {
         "job": {
@@ -319,7 +323,120 @@ def _openai_rank_candidates(job: Dict, prompt: str, candidates: List[Dict]) -> L
     )
 
     try:
-        with urllib.request.urlopen(req, timeout=45) as resp:
+        with urllib.request.urlopen(req, timeout=90) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        details = e.read().decode("utf-8", errors="ignore")
+        raise RuntimeError(f"OpenAI HTTP {e.code}: {details[:300]}")
+    except Exception as e:
+        raise RuntimeError(f"OpenAI request failed: {e}")
+
+    content = (
+        payload.get("choices", [{}])[0]
+        .get("message", {})
+        .get("content", "")
+    )
+    parsed = _extract_json_blob(content)
+    ranked = parsed.get("ranked", [])
+    if not isinstance(ranked, list):
+        raise RuntimeError("OpenAI response missing ranked list")
+
+    by_user = {c.get("user_id"): c for c in limited}
+    merged = []
+    for item in ranked:
+        if not isinstance(item, dict):
+            continue
+        user_id = str(item.get("user_id", "")).strip()
+        if not user_id or user_id not in by_user:
+            continue
+        base = by_user[user_id]
+        score = item.get("score", 0)
+        try:
+            score = int(score)
+        except Exception:
+            score = 0
+        merged.append(
+            {
+                "user_id": user_id,
+                "name": base.get("name") or "",
+                "skills": base.get("skills", []),
+                "score": max(0, min(100, score)),
+                "reasoning": str(item.get("reasoning", "Model-ranked candidate.")),
+                "skill_analysis": item.get("skills", []),
+                "skill_summary": str(item.get("skill_summary", "")),
+            }
+        )
+
+    if not merged:
+        raise RuntimeError("OpenAI returned no usable candidate rankings")
+
+    merged.sort(key=lambda x: x["score"], reverse=True)
+    return merged
+
+
+def _openai_rank_candidates(job: Dict, prompt: str, candidates: List[Dict]) -> List[Dict]:
+    """Use OpenAI chat completions to score candidates for a job."""
+    api_key = _read_env_value("OPENAI_API_KEY")
+    if not api_key:
+        raise RuntimeError("OPENAI_API_KEY not set")
+
+    # Keep payload bounded for latency and token usage.
+    limited = candidates[:100]
+    candidate_payload = []
+    for c in limited:
+        candidate_payload.append(
+            {
+                "user_id": c.get("user_id", ""),
+                "resume_text": (c.get("resume_text") or "")[:10000],
+            }
+        )
+
+    system_msg = (
+        "You are a recruiting fit-scoring assistant. "
+        "Score each candidate 0-100 based ONLY on how well they match the job requirements. "
+        "CRITICAL: Score each candidate independently and absolutely against the job description. "
+        "Do NOT compare candidates to each other. Do NOT adjust scores based on the strength of other candidates in this batch. "
+        "A candidate's score should be the same whether they are scored alone or with 100 others. "
+        "Return strict JSON only with shape: "
+        '{"ranked":[{"user_id":"...","score":0,"reasoning":"..."}]}. '
+        "Scoring criteria: technical skill match, relevant experience, demonstrated expertise, and alignment with job requirements."
+    )
+    user_msg = {
+        "job": {
+            "id": job.get("id"),
+            "title": job.get("title"),
+            "description": job.get("description"),
+            "skills": job.get("skills"),
+            "location": job.get("location"),
+        },
+        "prompt": prompt,
+        "candidates": candidate_payload,
+    }
+
+    body = json.dumps(
+        {
+            "model": "gpt-5.2",
+            "temperature": 0.2,
+            "response_format": {"type": "json_object"},
+            "messages": [
+                {"role": "system", "content": system_msg},
+                {"role": "user", "content": json.dumps(user_msg)},
+            ],
+        }
+    ).encode("utf-8")
+
+    req = urllib.request.Request(
+        "https://api.openai.com/v1/chat/completions",
+        data=body,
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {api_key}",
+        },
+        method="POST",
+    )
+
+    try:
+        with urllib.request.urlopen(req, timeout=90) as resp:
             payload = json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as e:
         details = e.read().decode("utf-8", errors="ignore")
@@ -434,7 +551,7 @@ def _openai_analyze_candidate_skills(
     )
 
     try:
-        with urllib.request.urlopen(req, timeout=45) as resp:
+        with urllib.request.urlopen(req, timeout=90) as resp:
             payload = json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as e:
         details = e.read().decode("utf-8", errors="ignore")
@@ -562,47 +679,27 @@ def analyze_candidate_skills(company_id: str, user_id: str, job_id: str | None =
     job = database.get_job(job_id) if job_id else None
     mode = "job_specific" if job else "general"
 
-    try:
-        openai_result = _openai_analyze_candidate_skills(candidate, job)
-        return {
-            "mode": mode,
-            "source": "openai",
-            "summary": openai_result.get("summary", ""),
-            "skills": openai_result.get("skills", []),
-        }
-    except Exception:
-        # deterministic fallback
-        resume_text = (candidate.get("resume_text") or "").lower()
-        candidate_skills = [str(s) for s in (candidate.get("skills") or [])]
-        if mode == "job_specific":
-            job_skills = job.get("skills", "[]") if job else []
-            if isinstance(job_skills, str):
-                try:
-                    job_skills = json.loads(job_skills)
-                except Exception:
-                    job_skills = []
-            names = [str(s) for s in job_skills][:7] or candidate_skills[:7]
-        else:
-            names = candidate_skills[:7]
-        if not names:
-            names = ["Python", "APIs", "System Design", "Databases", "Testing"]
-        scored = []
-        for idx, name in enumerate(names):
-            base = 62 - idx * 3
-            hits = resume_text.count(name.lower())
-            score = min(100, max(35, base + hits * 6))
-            scored.append({"name": name, "score": score})
-        scored.sort(key=lambda x: x["score"], reverse=True)
-        return {
-            "mode": mode,
-            "source": "fallback",
-            "summary": (
-                "Local analysis based on resume text and inferred skill match."
-                if mode == "general"
-                else "Local analysis focused on skills relevant to the selected job."
-            ),
-            "skills": scored,
-        }
+    # Only return cached skill analysis from fit scoring
+    cached_analysis = candidate.get("skill_analysis")
+    cached_summary = candidate.get("skill_analysis_summary")
+    if cached_analysis and cached_summary:
+        try:
+            skills = json.loads(cached_analysis) if isinstance(cached_analysis, str) else cached_analysis
+            if isinstance(skills, list) and len(skills) > 0:
+                return {
+                    "mode": mode,
+                    "source": "cached",
+                    "summary": cached_summary,
+                    "skills": skills[:7],
+                }
+        except Exception:
+            pass
+
+    # If no cached analysis, return placeholder indicating candidate needs scoring
+    raise HTTPException(
+        status_code=404, 
+        detail="Skill analysis not available. Please score this candidate first by clicking 'Score Now'."
+    )
 
 
 def submit_interviewee_list(job_id: str, user_ids: List[str]) -> None:
@@ -702,6 +799,123 @@ def list_company_applicants(company_id: str, job_id: str | None = None) -> List[
         except Exception:
             applicant["skills"] = []
     return applicants
+
+
+def score_unrated_applicants(
+    company_id: str, 
+    job_id: str | None = None,
+    batch_size: int = 20,
+    offset: int = 0,
+) -> Dict:
+    """Score one batch of unrated applicants. Returns scored count, total unrated, and applicants."""
+    if not database.get_company_by_id(company_id):
+        raise HTTPException(status_code=404, detail="Company not found")
+    
+    # Get all applicants for counting
+    all_applicants = database.get_company_applications(company_id, job_id=job_id)
+    for applicant in all_applicants:
+        interests_raw = applicant.get("interests") or "[]"
+        try:
+            applicant["skills"] = json.loads(interests_raw) if isinstance(interests_raw, str) else []
+            if not isinstance(applicant["skills"], list):
+                applicant["skills"] = []
+        except Exception:
+            applicant["skills"] = []
+    
+    # Count total unrated before processing
+    unrated = [a for a in all_applicants if a.get("fit_score") is None]
+    total_unrated_before = len(unrated)
+    
+    if total_unrated_before == 0:
+        return {"scored_count": 0, "total_unrated": 0, "applicants": all_applicants}
+    
+    # Process batch
+    batch = unrated[offset:offset + batch_size]
+    if not batch:
+        return {"scored_count": 0, "total_unrated": total_unrated_before, "applicants": all_applicants}
+    
+    by_job: Dict[str, List[Dict]] = {}
+    for app in batch:
+        by_job.setdefault(str(app["job_id"]), []).append(app)
+
+    scored_count = 0
+    
+    for job_id_key, job_apps in by_job.items():
+        job = database.get_job(job_id_key)
+        if not job:
+            continue
+
+        candidate_pool = []
+        app_by_user: Dict[str, Dict] = {}
+        for app in job_apps:
+            user_id = str(app.get("user_id") or "")
+            if not user_id:
+                continue
+            app_by_user[user_id] = app
+            candidate_pool.append(
+                {
+                    "user_id": user_id,
+                    "name": app.get("user_name", ""),
+                    "skills": app.get("skills", []),
+                    "resume_text": app.get("resume_text", ""),
+                }
+            )
+        if not candidate_pool:
+            continue
+
+        prompt = "Evaluate each candidate's fit for this role based solely on the job requirements. Score them independently — do not compare them to each other."
+        try:
+            ranked = _openai_rank_and_analyze_candidates(job, prompt, candidate_pool)
+        except Exception as e:
+            print(f"⚠️  OpenAI rank+analyze failed: {e}")
+            ranked = _rank_candidates(prompt, candidate_pool)
+
+        now_iso = _utc_now_iso()
+        for item in ranked:
+            user_id = str(item.get("user_id") or "")
+            app = app_by_user.get(user_id)
+            if not app:
+                continue
+            score = int(item.get("score", 0))
+            
+            # Store skill analysis if available
+            skill_analysis_json = ""
+            skill_summary = ""
+            if "skill_analysis" in item and item["skill_analysis"]:
+                try:
+                    skill_analysis_json = json.dumps(item["skill_analysis"])
+                    skill_summary = item.get("skill_summary", "")
+                except Exception:
+                    pass
+            
+            database.update_application_fit_score(
+                application_id=app["application_id"],
+                fit_score=max(0, min(100, score)),
+                fit_reasoning=str(item.get("reasoning", "")),
+                fit_scored_at=now_iso,
+                skill_analysis=skill_analysis_json,
+                skill_analysis_summary=skill_summary,
+            )
+            scored_count += 1
+    
+    # Get refreshed applicant list with new scores
+    applicants = database.get_company_applications(company_id, job_id=job_id)
+    for applicant in applicants:
+        interests_raw = applicant.get("interests") or "[]"
+        try:
+            applicant["skills"] = json.loads(interests_raw) if isinstance(interests_raw, str) else []
+            if not isinstance(applicant["skills"], list):
+                applicant["skills"] = []
+        except Exception:
+            applicant["skills"] = []
+    
+    # Count remaining unrated
+    remaining_unrated = len([a for a in applicants if a.get("fit_score") is None])
+    
+    if scored_count:
+        _add_activity(company_id, "Applicant fit scores updated", f"Scored {scored_count} applicants.")
+    
+    return {"scored_count": scored_count, "total_unrated": remaining_unrated, "applicants": applicants}
 
 
 def update_application_status(

@@ -1,5 +1,9 @@
 """Company routes."""
+import json as _json
+from typing import List, Optional
+
 from fastapi import APIRouter
+from pydantic import BaseModel
 
 from schemas.company import (
     CreateJobPostingRequest,
@@ -13,6 +17,7 @@ from schemas.company import (
     AnalyzeCandidateSkillsRequest,
 )
 from services import company as company_service
+import database
 
 router = APIRouter(tags=["companies"])
 
@@ -108,6 +113,23 @@ def get_company_applicants(company_id: str, job_id: str | None = None):
     return {"company_id": company_id, "job_id": job_id, "applicants": applicants}
 
 
+@router.post("/score-applicants")
+def score_applicants(company_id: str, job_id: str | None = None, batch_size: int = 20, offset: int = 0):
+    result = company_service.score_unrated_applicants(
+        company_id, 
+        job_id=job_id,
+        batch_size=batch_size,
+        offset=offset,
+    )
+    return {
+        "company_id": company_id,
+        "job_id": job_id,
+        "scored_count": result["scored_count"],
+        "total_unrated": result["total_unrated"],
+        "applicants": result["applicants"],
+    }
+
+
 @router.post("/update-application-status")
 def update_application_status(payload: UpdateApplicationStatusRequest):
     updated = company_service.update_application_status(
@@ -127,3 +149,60 @@ def analyze_candidate_skills(payload: AnalyzeCandidateSkillsRequest):
         job_id=payload.job_id,
     )
     return {"status": "ok", "analysis": result}
+
+
+# --- Agent Chat Persistence ---
+
+
+class SaveAgentMessageRequest(BaseModel):
+    company_id: str
+    message_id: str
+    role: str
+    content: str
+    candidates: Optional[str] = "[]"
+    ranking_source: Optional[str] = ""
+
+
+class SaveAgentMessagesRequest(BaseModel):
+    company_id: str
+    messages: List[SaveAgentMessageRequest]
+
+
+@router.get("/agent-messages")
+def get_agent_messages(company_id: str):
+    rows = database.get_agent_messages(company_id)
+    result = []
+    for row in rows:
+        candidates_raw = row.get("candidates") or "[]"
+        try:
+            candidates = _json.loads(candidates_raw) if isinstance(candidates_raw, str) else []
+        except Exception:
+            candidates = []
+        result.append({
+            "id": row["id"],
+            "role": row["role"],
+            "content": row["content"],
+            "candidates": candidates,
+            "rankingSource": row.get("ranking_source") or "",
+        })
+    return {"company_id": company_id, "messages": result}
+
+
+@router.post("/agent-messages")
+def save_agent_messages(payload: SaveAgentMessagesRequest):
+    for msg in payload.messages:
+        database.save_agent_message(
+            company_id=msg.company_id,
+            message_id=msg.message_id,
+            role=msg.role,
+            content=msg.content,
+            candidates=msg.candidates or "[]",
+            ranking_source=msg.ranking_source or "",
+        )
+    return {"status": "ok", "count": len(payload.messages)}
+
+
+@router.delete("/agent-messages")
+def clear_agent_messages(company_id: str):
+    database.clear_agent_messages(company_id)
+    return {"status": "ok"}

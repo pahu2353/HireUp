@@ -94,6 +94,18 @@ def init_db() -> None:
             CREATE INDEX IF NOT EXISTS idx_jobs_company ON jobs(company_id);
             CREATE INDEX IF NOT EXISTS idx_applications_user ON applications(user_id);
             CREATE INDEX IF NOT EXISTS idx_applications_job ON applications(job_id);
+
+            CREATE TABLE IF NOT EXISTS agent_messages (
+                id TEXT PRIMARY KEY,
+                company_id TEXT NOT NULL,
+                role TEXT NOT NULL,
+                content TEXT NOT NULL,
+                candidates TEXT,
+                ranking_source TEXT,
+                created_at TEXT DEFAULT (datetime('now')),
+                FOREIGN KEY (company_id) REFERENCES companies(id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_agent_messages_company ON agent_messages(company_id);
             """
         )
 
@@ -115,6 +127,17 @@ def init_db() -> None:
             conn.execute("ALTER TABLE applications ADD COLUMN technical_score INTEGER")
         except sqlite3.OperationalError:
             pass
+        for stmt in (
+            "ALTER TABLE applications ADD COLUMN fit_score INTEGER",
+            "ALTER TABLE applications ADD COLUMN fit_reasoning TEXT",
+            "ALTER TABLE applications ADD COLUMN fit_scored_at TEXT",
+            "ALTER TABLE applications ADD COLUMN skill_analysis TEXT",
+            "ALTER TABLE applications ADD COLUMN skill_analysis_summary TEXT",
+        ):
+            try:
+                conn.execute(stmt)
+            except sqlite3.OperationalError:
+                pass
 
 
 def hash_password(password: str) -> str:
@@ -580,6 +603,9 @@ def create_application(user_id: str, job_id: str) -> Dict[str, Any]:
         "job_id": job_id,
         "status": "submitted",
         "technical_score": None,
+        "fit_score": None,
+        "fit_reasoning": "",
+        "fit_scored_at": None,
     }
 
 
@@ -617,6 +643,11 @@ def get_company_applications(company_id: str, job_id: str | None = None) -> List
             a.job_id,
             a.status,
             a.technical_score,
+            a.fit_score,
+            a.fit_reasoning,
+            a.fit_scored_at,
+            a.skill_analysis,
+            a.skill_analysis_summary,
             a.created_at,
             j.title AS job_title,
             u.name AS user_name,
@@ -696,6 +727,11 @@ def update_company_application_status(
                 a.job_id,
                 a.status,
                 a.technical_score,
+                a.fit_score,
+                a.fit_reasoning,
+                a.fit_scored_at,
+                a.skill_analysis,
+                a.skill_analysis_summary,
                 a.created_at,
                 j.title AS job_title,
                 u.name AS user_name,
@@ -710,3 +746,68 @@ def update_company_application_status(
             (application_id,),
         ).fetchone()
     return dict(updated) if updated else None
+
+
+def update_application_fit_score(
+    application_id: str,
+    fit_score: int,
+    fit_reasoning: str,
+    fit_scored_at: str,
+    skill_analysis: str = "",
+    skill_analysis_summary: str = "",
+) -> None:
+    with get_conn() as conn:
+        conn.execute(
+            """
+            UPDATE applications
+            SET fit_score = ?, fit_reasoning = ?, fit_scored_at = ?, skill_analysis = ?, skill_analysis_summary = ?
+            WHERE id = ?
+            """,
+            (fit_score, fit_reasoning, fit_scored_at, skill_analysis, skill_analysis_summary, application_id),
+        )
+
+
+# --- Agent Messages ---
+def save_agent_message(
+    company_id: str,
+    message_id: str,
+    role: str,
+    content: str,
+    candidates: str = "[]",
+    ranking_source: str = "",
+) -> Dict[str, Any]:
+    with get_conn() as conn:
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO agent_messages (id, company_id, role, content, candidates, ranking_source)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (message_id, company_id, role, content, candidates, ranking_source),
+        )
+    return {
+        "id": message_id,
+        "company_id": company_id,
+        "role": role,
+        "content": content,
+        "candidates": candidates,
+        "ranking_source": ranking_source,
+    }
+
+
+def get_agent_messages(company_id: str) -> List[Dict[str, Any]]:
+    with get_conn() as conn:
+        rows = conn.execute(
+            """
+            SELECT id, company_id, role, content, candidates, ranking_source, created_at
+            FROM agent_messages
+            WHERE company_id = ?
+            ORDER BY created_at ASC
+            """,
+            (company_id,),
+        ).fetchall()
+    return [dict(row) for row in rows]
+
+
+def clear_agent_messages(company_id: str) -> None:
+    with get_conn() as conn:
+        conn.execute("DELETE FROM agent_messages WHERE company_id = ?", (company_id,))
