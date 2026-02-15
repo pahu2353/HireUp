@@ -1,5 +1,5 @@
 from .auth import LoginRequest, SignupRequest
-from .user import ApplyJobRequest
+from .user import ApplyJobRequest, UpdateProfileRequest
 from .company import (
     CreateJobPostingRequest,
     TopCandidatesRequest,

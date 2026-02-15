@@ -95,3 +95,96 @@ export async function signupCompany(payload: {
   if (!res.ok) throw new Error(data.detail ?? "Signup failed")
   return data as { status: string; id: string; account_type: string }
 }
+
+export async function getProfile(userId: string) {
+  const res = await fetch(getApiUrl(`/profile/${userId}`), {
+    method: "GET",
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data.detail ?? "Failed to fetch profile")
+  return data.profile
+}
+
+export function getResumeUrl(userId: string): string {
+  return getApiUrl(`/resume/${userId}`)
+}
+
+export async function updateProfile(userId: string, payload: {
+  name?: string
+  email?: string
+  resumePdfBase64?: string
+  interests?: string[]
+  careerObjective?: string
+}) {
+  const res = await fetch(getApiUrl(`/profile/${userId}`), {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      name: payload.name,
+      email: payload.email,
+      resume_pdf_base64: payload.resumePdfBase64,
+      interests: payload.interests,
+      career_objective: payload.careerObjective,
+    }),
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data.detail ?? "Failed to update profile")
+  return data.profile
+}
+
+export async function getMatchedJobs(userId: string) {
+  const res = await fetch(getApiUrl(`/get-matched-jobs?user_id=${userId}`), {
+    method: "GET",
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data.detail ?? "Failed to fetch matched jobs")
+  return data.matched_jobs
+}
+
+export async function applyJob(userId: string, jobId: string) {
+  const res = await fetch(getApiUrl("/apply-job"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ user_id: userId, job_id: jobId }),
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data.detail ?? "Failed to apply for job")
+  return data.application
+}
+
+export async function createJobPosting(payload: {
+  company_id: string
+  title: string
+  description?: string
+  skills?: string[]
+  location?: string
+  salary_range?: string
+}) {
+  const res = await fetch(getApiUrl("/create-job-posting"), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data.detail ?? "Failed to create job posting")
+  return data.job_id
+}
+
+export async function getCompanyJobs(companyId: string) {
+  const res = await fetch(getApiUrl(`/get-company-jobs?company_id=${companyId}`), {
+    method: "GET",
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data.detail ?? "Failed to fetch company jobs")
+  return data.jobs
+}
+
+export async function getUserApplications(userId: string) {
+  const res = await fetch(getApiUrl(`/applications/${userId}`), {
+    method: "GET",
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(data.detail ?? "Failed to fetch applications")
+  return data.applications
+}
+

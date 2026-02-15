@@ -1,6 +1,7 @@
 """Company business logic."""
 from __future__ import annotations
 
+import json
 from typing import Dict, List
 from uuid import uuid4
 
@@ -12,8 +13,7 @@ except ImportError:
     import database
 
 
-# In-memory state (jobs, interview lists, feedback). Can be moved to DB later.
-_jobs: Dict[str, Dict] = {}
+# In-memory state (interview lists, feedback). Jobs now in DB.
 _interview_lists: Dict[str, List[str]] = {}
 _interview_feedback: List[Dict] = []
 
@@ -56,10 +56,16 @@ def create_job_posting(job_data: Dict) -> str:
     company_id = job_data.get("company_id")
     if not database.get_company_by_id(company_id):
         raise HTTPException(status_code=404, detail="Company not found")
-    job_id = str(uuid4())
-    job_record = dict(job_data)
-    job_record["job_id"] = job_id
-    _jobs[job_id] = job_record
+    skills = job_data.get("skills", [])
+    skills_str = json.dumps(skills) if isinstance(skills, list) else str(skills)
+    job_id = database.create_job(
+        company_id=company_id,
+        title=job_data.get("title", ""),
+        description=job_data.get("description", ""),
+        skills=skills_str,
+        location=job_data.get("location", "Remote"),
+        salary_range=job_data.get("salary_range", "TBD"),
+    )
     return job_id
 
 
@@ -74,7 +80,7 @@ def _rank_candidates(prompt: str, candidates: List[Dict]) -> List[Dict]:
 
 
 def get_top_candidates(job_id: str, prompt: str) -> List[Dict]:
-    if job_id not in _jobs:
+    if not database.get_job(job_id):
         raise HTTPException(status_code=404, detail="Job not found")
     mock_candidates = [
         {"user_id": "user-1", "skills": ["python", "fastapi", "sql"]},
@@ -86,13 +92,13 @@ def get_top_candidates(job_id: str, prompt: str) -> List[Dict]:
 
 
 def submit_interviewee_list(job_id: str, user_ids: List[str]) -> None:
-    if job_id not in _jobs:
+    if not database.get_job(job_id):
         raise HTTPException(status_code=404, detail="Job not found")
     _interview_lists[job_id] = user_ids
 
 
 def submit_interviewee_feedback(job_id: str, user_id: str, feedback: str) -> Dict:
-    if job_id not in _jobs:
+    if not database.get_job(job_id):
         raise HTTPException(status_code=404, detail="Job not found")
     entry = {"feedback_id": str(uuid4()), "job_id": job_id, "user_id": user_id, "feedback": feedback}
     _interview_feedback.append(entry)

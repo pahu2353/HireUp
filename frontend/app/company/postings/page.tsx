@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { DashboardShell } from "@/components/dashboard/dashboard-shell"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -23,87 +23,84 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog"
 import { Plus, Users, Eye } from "lucide-react"
+import { getAuth, createJobPosting, getCompanyJobs } from "@/lib/api"
+import { toast } from "sonner"
 
 interface JobPosting {
   id: string
   title: string
   location: string
-  salary: string
-  type: string
+  salary_range: string
   description: string
-  requirements: string[]
-  applicantCount: number
-  status: "active" | "paused" | "closed"
+  skills: string[]
+  status: string
+  created_at: string
 }
 
-const INITIAL_POSTINGS: JobPosting[] = [
-  {
-    id: "1",
-    title: "Full-Stack Engineer",
-    location: "San Francisco, CA",
-    salary: "$140k - $180k",
-    type: "Full-time",
-    description:
-      "Build and scale our real-time data processing platform across the full stack.",
-    requirements: ["React", "TypeScript", "Python", "PostgreSQL"],
-    applicantCount: 47,
-    status: "active",
-  },
-  {
-    id: "2",
-    title: "Backend Engineer",
-    location: "Remote",
-    salary: "$130k - $165k",
-    type: "Full-time",
-    description:
-      "Design and implement high-performance APIs handling millions of requests daily.",
-    requirements: ["Go", "PostgreSQL", "GraphQL", "Docker"],
-    applicantCount: 32,
-    status: "active",
-  },
-  {
-    id: "3",
-    title: "DevOps Engineer",
-    location: "New York, NY",
-    salary: "$150k - $190k",
-    type: "Full-time",
-    description:
-      "Own our infrastructure and CI/CD pipelines. Scale systems to handle 10x growth.",
-    requirements: ["Kubernetes", "AWS", "Terraform", "Docker"],
-    applicantCount: 18,
-    status: "active",
-  },
-]
-
 export default function PostingsPage() {
-  const [postings, setPostings] = useState<JobPosting[]>(INITIAL_POSTINGS)
+  const [postings, setPostings] = useState<JobPosting[]>([])
+  const [loading, setLoading] = useState(true)
+  const [companyId, setCompanyId] = useState("")
   const [open, setOpen] = useState(false)
+  const [creating, setCreating] = useState(false)
   const [newTitle, setNewTitle] = useState("")
-  const [newLocation, setNewLocation] = useState("")
+  const [newLocation, setNewLocation] = useState("Remote")
   const [newSalary, setNewSalary] = useState("")
   const [newDescription, setNewDescription] = useState("")
-  const [newRequirements, setNewRequirements] = useState("")
+  const [newSkills, setNewSkills] = useState("")
 
-  const handleCreate = () => {
-    if (!newTitle) return
-    const newPosting: JobPosting = {
-      id: String(postings.length + 1),
-      title: newTitle,
-      location: newLocation,
-      salary: newSalary,
-      type: "Full-time",
-      description: newDescription,
-      requirements: newRequirements.split(",").map((r) => r.trim()).filter(Boolean),
-      applicantCount: 0,
-      status: "active",
+  useEffect(() => {
+    const auth = getAuth()
+    if (!auth || auth.accountType !== "company") {
+      window.location.href = "/login"
+      return
     }
-    setPostings([newPosting, ...postings])
-    setNewTitle("")
-    setNewLocation("")
-    setNewSalary("")
-    setNewDescription("")
-    setNewRequirements("")
-    setOpen(false)
+    setCompanyId(auth.id)
+    getCompanyJobs(auth.id)
+      .then(setPostings)
+      .catch(() => toast.error("Failed to load job postings"))
+      .finally(() => setLoading(false))
+  }, [])
+
+  const handleCreate = async () => {
+    if (!newTitle) {
+      toast.error("Job title is required")
+      return
+    }
+    setCreating(true)
+    try {
+      const skills = newSkills.split(",").map((s) => s.trim()).filter(Boolean)
+      const jobId = await createJobPosting({
+        company_id: companyId,
+        title: newTitle,
+        description: newDescription,
+        skills,
+        location: newLocation,
+        salary_range: newSalary,
+      })
+      toast.success("Job posting created successfully!")
+      // Refresh the list
+      const updatedJobs = await getCompanyJobs(companyId)
+      setPostings(updatedJobs)
+      setNewTitle("")
+      setNewLocation("Remote")
+      setNewSalary("")
+      setNewDescription("")
+      setNewSkills("")
+      setOpen(false)
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Failed to create job posting")
+    } finally {
+      setCreating(false)
+    }
+  }
+
+  if (loading) {
+    return (
+      <DashboardShell role="company">
+        <p className="text-muted-foreground">Loading job postings...</p>
+      </DashboardShell>
+    )
   }
 
   return (
@@ -171,75 +168,85 @@ export default function PostingsPage() {
                 />
               </div>
               <div className="space-y-2">
-                <Label htmlFor="j-reqs">
+                <Label htmlFor="j-skills">
                   Required Skills (comma separated)
                 </Label>
                 <Input
-                  id="j-reqs"
+                  id="j-skills"
                   placeholder="e.g., React, TypeScript, Python"
-                  value={newRequirements}
-                  onChange={(e) => setNewRequirements(e.target.value)}
+                  value={newSkills}
+                  onChange={(e) => setNewSkills(e.target.value)}
                 />
               </div>
-              <Button className="w-full" onClick={handleCreate}>
-                Create Posting
+              <Button className="w-full" onClick={handleCreate} disabled={creating}>
+                {creating ? "Creating..." : "Create Posting"}
               </Button>
             </div>
           </DialogContent>
         </Dialog>
       </div>
 
-      <div className="space-y-4">
-        {postings.map((posting) => (
-          <Card key={posting.id}>
-            <CardHeader className="pb-3">
-              <div className="flex items-start justify-between">
-                <div>
-                  <CardTitle className="text-lg">{posting.title}</CardTitle>
-                  <CardDescription>
-                    {posting.location} &middot; {posting.salary} &middot;{" "}
-                    {posting.type}
-                  </CardDescription>
-                </div>
-                <Badge
-                  variant="secondary"
-                  className={
-                    posting.status === "active"
-                      ? "bg-primary/10 text-primary"
-                      : "bg-secondary text-muted-foreground"
-                  }
-                >
-                  {posting.status}
-                </Badge>
-              </div>
-            </CardHeader>
-            <CardContent>
-              <p className="mb-4 text-sm text-muted-foreground leading-relaxed">
-                {posting.description}
-              </p>
-              <div className="mb-4 flex flex-wrap gap-2">
-                {posting.requirements.map((req) => (
-                  <Badge key={req} variant="secondary" className="text-xs">
-                    {req}
+      {postings.length === 0 ? (
+        <Card>
+          <CardContent className="py-8 text-center">
+            <p className="text-muted-foreground">
+              No job postings yet. Create your first posting to start matching with candidates!
+            </p>
+          </CardContent>
+        </Card>
+      ) : (
+        <div className="space-y-4">
+          {postings.map((posting) => (
+            <Card key={posting.id}>
+              <CardHeader className="pb-3">
+                <div className="flex items-start justify-between">
+                  <div>
+                    <CardTitle className="text-lg">{posting.title}</CardTitle>
+                    <CardDescription>
+                      {posting.location} &middot; {posting.salary_range}
+                    </CardDescription>
+                  </div>
+                  <Badge
+                    variant="secondary"
+                    className={
+                      posting.status === "open"
+                        ? "bg-primary/10 text-primary"
+                        : "bg-secondary text-muted-foreground"
+                    }
+                  >
+                    {posting.status}
                   </Badge>
-                ))}
-              </div>
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                  <span className="flex items-center gap-1">
-                    <Users className="h-3.5 w-3.5" />
-                    {posting.applicantCount} matched applicants
-                  </span>
                 </div>
-                <Button variant="outline" size="sm">
-                  <Eye className="mr-1 h-3.5 w-3.5" />
-                  View Candidates
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+              </CardHeader>
+              <CardContent>
+                <p className="mb-4 text-sm text-muted-foreground leading-relaxed">
+                  {posting.description || "No description provided."}
+                </p>
+                <div className="mb-4 flex flex-wrap gap-2">
+                  {posting.skills.map((skill) => (
+                    <Badge key={skill} variant="secondary" className="text-xs">
+                      {skill}
+                    </Badge>
+                  ))}
+                </div>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-4 text-sm text-muted-foreground">
+                    <span className="flex items-center gap-1">
+                      <Users className="h-3.5 w-3.5" />
+                      matched applicants
+                    </span>
+                  </div>
+                  <Button variant="outline" size="sm">
+                    <Eye className="mr-1 h-3.5 w-3.5" />
+                    View Candidates
+                  </Button>
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
     </DashboardShell>
   )
 }
+

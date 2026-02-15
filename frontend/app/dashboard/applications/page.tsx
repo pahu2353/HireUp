@@ -1,5 +1,6 @@
 "use client"
 
+import { useEffect, useState } from "react"
 import { DashboardShell } from "@/components/dashboard/dashboard-shell"
 import { Badge } from "@/components/ui/badge"
 import {
@@ -9,35 +10,74 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card"
+import { getAuth, getUserApplications } from "@/lib/api"
+import { toast } from "sonner"
 
-const MOCK_APPLICATIONS = [
-  {
-    id: "1",
-    company: "Dataflow Labs",
-    title: "Full-Stack Engineer",
-    appliedDate: "Feb 12, 2026",
-    status: "Interview Scheduled",
-    statusColor: "bg-primary/10 text-primary",
-  },
-  {
-    id: "2",
-    company: "Nexus AI",
-    title: "ML Infrastructure Engineer",
-    appliedDate: "Feb 11, 2026",
-    status: "Under Review",
-    statusColor: "bg-yellow-500/10 text-yellow-400",
-  },
-  {
-    id: "3",
-    company: "ClearBit",
-    title: "Backend Engineer",
-    appliedDate: "Feb 10, 2026",
-    status: "Applied",
-    statusColor: "bg-secondary text-muted-foreground",
-  },
-]
+interface Application {
+  id: string
+  user_id: string
+  job_id: string
+  status: string
+  created_at: string
+  title: string
+  location: string
+  salary_range: string
+  company_name: string
+}
+
+function getStatusColor(status: string): string {
+  switch (status.toLowerCase()) {
+    case "interview scheduled":
+      return "bg-primary/10 text-primary"
+    case "under review":
+      return "bg-yellow-500/10 text-yellow-600 dark:text-yellow-400"
+    case "accepted":
+    case "offer":
+      return "bg-green-500/10 text-green-600 dark:text-green-400"
+    case "rejected":
+      return "bg-red-500/10 text-red-600 dark:text-red-400"
+    default:
+      return "bg-secondary text-muted-foreground"
+  }
+}
+
+function formatDate(dateString: string): string {
+  try {
+    const date = new Date(dateString)
+    return date.toLocaleDateString("en-US", { 
+      month: "short", 
+      day: "numeric", 
+      year: "numeric" 
+    })
+  } catch {
+    return dateString
+  }
+}
 
 export default function ApplicationsPage() {
+  const [applications, setApplications] = useState<Application[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    const auth = getAuth()
+    if (!auth || auth.accountType !== "user") {
+      window.location.href = "/login"
+      return
+    }
+    getUserApplications(auth.id)
+      .then(setApplications)
+      .catch(() => toast.error("Failed to load applications"))
+      .finally(() => setLoading(false))
+  }, [])
+
+  if (loading) {
+    return (
+      <DashboardShell role="applicant">
+        <p className="text-muted-foreground">Loading applications...</p>
+      </DashboardShell>
+    )
+  }
+
   return (
     <DashboardShell role="applicant">
       <div className="mb-8">
@@ -47,7 +87,7 @@ export default function ApplicationsPage() {
         </p>
       </div>
 
-      {MOCK_APPLICATIONS.length === 0 ? (
+      {applications.length === 0 ? (
         <Card>
           <CardContent className="flex flex-col items-center justify-center py-16">
             <p className="text-muted-foreground">
@@ -57,32 +97,32 @@ export default function ApplicationsPage() {
         </Card>
       ) : (
         <div className="space-y-3">
-          {MOCK_APPLICATIONS.map((app) => (
+          {applications.map((app) => (
             <Card key={app.id}>
               <CardHeader className="pb-2">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
                     <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-secondary">
                       <span className="text-sm font-bold text-foreground">
-                        {app.company.charAt(0)}
+                        {app.company_name?.charAt(0) ?? "C"}
                       </span>
                     </div>
                     <div>
                       <CardTitle className="text-base">{app.title}</CardTitle>
-                      <CardDescription>{app.company}</CardDescription>
+                      <CardDescription>{app.company_name || "Company"}</CardDescription>
                     </div>
                   </div>
                   <Badge
                     variant="secondary"
-                    className={app.statusColor}
+                    className={getStatusColor(app.status)}
                   >
-                    {app.status}
+                    {app.status.charAt(0).toUpperCase() + app.status.slice(1)}
                   </Badge>
                 </div>
               </CardHeader>
               <CardContent>
                 <p className="text-xs text-muted-foreground">
-                  Applied on {app.appliedDate}
+                  Applied on {formatDate(app.created_at)}
                 </p>
               </CardContent>
             </Card>
@@ -92,3 +132,4 @@ export default function ApplicationsPage() {
     </DashboardShell>
   )
 }
+

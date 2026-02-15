@@ -18,6 +18,20 @@ def create_job_posting(payload: CreateJobPostingRequest):
     return {"status": "ok", "job_id": job_id}
 
 
+@router.get("/get-company-jobs")
+def get_company_jobs(company_id: str):
+    from database import get_jobs_by_company
+    import json
+    jobs = get_jobs_by_company(company_id)
+    # Parse skills JSON for each job
+    for job in jobs:
+        try:
+            job["skills"] = json.loads(job.get("skills", "[]"))
+        except Exception:
+            job["skills"] = []
+    return {"company_id": company_id, "jobs": jobs}
+
+
 @router.post("/get-top-candidates")
 def get_top_candidates(payload: TopCandidatesRequest):
     top_candidates = company_service.get_top_candidates(

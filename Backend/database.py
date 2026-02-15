@@ -31,6 +31,7 @@ def init_db() -> None:
                 resume_pdf BLOB,
                 resume_text TEXT,
                 interests TEXT,
+                career_objective TEXT,
                 account_type TEXT DEFAULT 'user',
                 created_at TEXT DEFAULT (datetime('now'))
             );
@@ -51,8 +52,32 @@ def init_db() -> None:
                 account_id TEXT NOT NULL,
                 created_at TEXT DEFAULT (datetime('now'))
             );
+            CREATE TABLE IF NOT EXISTS jobs (
+                id TEXT PRIMARY KEY,
+                company_id TEXT NOT NULL,
+                title TEXT NOT NULL,
+                description TEXT,
+                skills TEXT,
+                location TEXT,
+                salary_range TEXT,
+                status TEXT DEFAULT 'open',
+                created_at TEXT DEFAULT (datetime('now')),
+                FOREIGN KEY (company_id) REFERENCES companies(id)
+            );
+            CREATE TABLE IF NOT EXISTS applications (
+                id TEXT PRIMARY KEY,
+                user_id TEXT NOT NULL,
+                job_id TEXT NOT NULL,
+                status TEXT DEFAULT 'submitted',
+                created_at TEXT DEFAULT (datetime('now')),
+                FOREIGN KEY (user_id) REFERENCES users(id),
+                FOREIGN KEY (job_id) REFERENCES jobs(id)
+            );
             CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);
             CREATE INDEX IF NOT EXISTS idx_companies_email ON companies(email);
+            CREATE INDEX IF NOT EXISTS idx_jobs_company ON jobs(company_id);
+            CREATE INDEX IF NOT EXISTS idx_applications_user ON applications(user_id);
+            CREATE INDEX IF NOT EXISTS idx_applications_job ON applications(job_id);
         """)
         # Migration: add new columns to existing users table
         try:
@@ -61,6 +86,10 @@ def init_db() -> None:
             pass  # column already exists
         try:
             conn.execute("ALTER TABLE users ADD COLUMN resume_text TEXT")
+        except sqlite3.OperationalError:
+            pass
+        try:
+            conn.execute("ALTER TABLE users ADD COLUMN career_objective TEXT")
         except sqlite3.OperationalError:
             pass
 
@@ -82,6 +111,7 @@ def create_user(
     resume_pdf: bytes | None = None,
     resume_text: str = "",
     interests: str = "[]",
+    career_objective: str = "",
     user_id: str | None = None,
 ) -> Dict[str, Any]:
     if get_user_by_email(email):
@@ -89,9 +119,9 @@ def create_user(
     user_id = user_id or str(uuid4())
     with get_conn() as conn:
         conn.execute(
-            """INSERT INTO users (id, email, password_hash, name, resume, resume_pdf, resume_text, interests)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-            (user_id, email, hash_password(password), name, resume, resume_pdf, resume_text, interests),
+            """INSERT INTO users (id, email, password_hash, name, resume, resume_pdf, resume_text, interests, career_objective)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (user_id, email, hash_password(password), name, resume, resume_pdf, resume_text, interests, career_objective),
         )
     return {
         "id": user_id,
@@ -101,6 +131,7 @@ def create_user(
         "has_resume_pdf": bool(resume_pdf),
         "resume_text": resume_text,
         "interests": interests,
+        "career_objective": career_objective,
         "account_type": "user",
     }
 
@@ -108,7 +139,7 @@ def create_user(
 def get_user_by_email(email: str) -> Optional[Dict[str, Any]]:
     with get_conn() as conn:
         row = conn.execute(
-            "SELECT id, email, password_hash, name, resume, resume_text, interests FROM users WHERE email = ?",
+            "SELECT id, email, password_hash, name, resume, resume_pdf, resume_text, interests, career_objective FROM users WHERE email = ?",
             (email,),
         ).fetchone()
     if not row:
@@ -122,6 +153,7 @@ def get_user_by_email(email: str) -> Optional[Dict[str, Any]]:
         "resume": row_dict.get("resume") or "",
         "resume_text": row_dict.get("resume_text") or "",
         "interests": row_dict.get("interests") or "[]",
+        "career_objective": row_dict.get("career_objective") or "",
         "account_type": "user",
     }
 
@@ -215,6 +247,46 @@ def get_user_by_id(user_id: str) -> Optional[Dict[str, Any]]:
     if not row:
         return None
     return dict(row)
+
+
+def update_user(
+    user_id: str,
+    name: str | None = None,
+    email: str | None = None,
+    resume_pdf: bytes | None = None,
+    resume_text: str | None = None,
+    interests: str | None = None,
+    career_objective: str | None = None,
+) -> bool:
+    """Update user fields. Only updates non-None fields. Returns True if user exists."""
+    if not get_user_by_id(user_id):
+        return False
+    updates = []
+    params = []
+    if name is not None:
+        updates.append("name = ?")
+        params.append(name)
+    if email is not None:
+        updates.append("email = ?")
+        params.append(email)
+    if resume_pdf is not None:
+        updates.append("resume_pdf = ?")
+        params.append(resume_pdf)
+    if resume_text is not None:
+        updates.append("resume_text = ?")
+        params.append(resume_text)
+    if interests is not None:
+        updates.append("interests = ?")
+        params.append(interests)
+    if career_objective is not None:
+        updates.append("career_objective = ?")
+        params.append(career_objective)
+    if not updates:
+        return True
+    params.append(user_id)
+    with get_conn() as conn:
+        conn.execute(f"UPDATE users SET {', '.join(updates)} WHERE id = ?", params)
+    return True
 
 
 def get_company_by_id(company_id: str) -> Optional[Dict[str, Any]]:
@@ -315,44 +387,3 @@ def check_application_exists(user_id: str, job_id: str) -> bool:
             (user_id, job_id),
         ).fetchone()
     return row is not None
-
-
-def update_user(
-    user_id: str,
-    name: str | None = None,
-    email: str | None = None,
-    resume_pdf: bytes | None = None,
-    resume_text: str | None = None,
-    interests: str | None = None,
-    career_objective: str | None = None,
-) -> bool:
-    """Update user fields. Only updates non-None fields. Returns True if user exists."""
-    if not get_user_by_id(user_id):
-        return False
-    updates = []
-    params = []
-    if name is not None:
-        updates.append("name = ?")
-        params.append(name)
-    if email is not None:
-        updates.append("email = ?")
-        params.append(email)
-    if resume_pdf is not None:
-        updates.append("resume_pdf = ?")
-        params.append(resume_pdf)
-    if resume_text is not None:
-        updates.append("resume_text = ?")
-        params.append(resume_text)
-    if interests is not None:
-        updates.append("interests = ?")
-        params.append(interests)
-    if career_objective is not None:
-        updates.append("career_objective = ?")
-        params.append(career_objective)
-    if not updates:
-        return True
-    params.append(user_id)
-    with get_conn() as conn:
-        conn.execute(f"UPDATE users SET {', '.join(updates)} WHERE id = ?", params)
-    return True
-

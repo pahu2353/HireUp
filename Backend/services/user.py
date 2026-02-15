@@ -4,7 +4,6 @@ from __future__ import annotations
 import base64
 import json
 from typing import Dict, List
-from uuid import uuid4
 
 from fastapi import HTTPException
 
@@ -16,13 +15,8 @@ except ImportError:
     import pdf_utils
 
 
-# In-memory state (applications, interviews); matched jobs are mock data for now.
-_applications: List[Dict] = []
+# In-memory state (interviews). Applications and jobs now in DB.
 _interviews: Dict[str, List[Dict]] = {}
-MOCK_MATCHED_JOBS: List[Dict] = [
-    {"job_id": "job-101", "title": "Backend Engineer", "company_name": "Sorttie Labs", "skills": ["python", "fastapi", "postgres"]},
-    {"job_id": "job-102", "title": "ML Ranking Engineer", "company_name": "SignalMatch", "skills": ["pytorch", "recommenders", "ranking"]},
-]
 
 
 def create_user(user_data: Dict) -> Dict:
@@ -77,9 +71,18 @@ def create_session(login_data: Dict) -> Dict:
 
 
 def get_matched_jobs(user_id: str) -> List[Dict]:
+    """Get all open jobs for the user. Eventually we'll use vector search to filter relevant ones."""
     if not database.get_user_by_id(user_id):
         raise HTTPException(status_code=404, detail="User not found")
-    return MOCK_MATCHED_JOBS
+    all_jobs = database.get_all_jobs(status="open")
+    # For each job, parse skills from JSON string and add an 'applied' flag
+    for job in all_jobs:
+        try:
+            job["skills"] = json.loads(job.get("skills", "[]"))
+        except Exception:
+            job["skills"] = []
+        job["applied"] = database.check_application_exists(user_id, job["id"])
+    return all_jobs
 
 
 def get_user_interviews(user_id: str) -> List[Dict]:
@@ -89,11 +92,49 @@ def get_user_interviews(user_id: str) -> List[Dict]:
 def apply_job(user_id: str, job_id: str) -> Dict:
     if not database.get_user_by_id(user_id):
         raise HTTPException(status_code=404, detail="User not found")
-    application = {
-        "application_id": str(uuid4()),
-        "user_id": user_id,
-        "job_id": job_id,
-        "status": "submitted",
-    }
-    _applications.append(application)
+    if not database.get_job(job_id):
+        raise HTTPException(status_code=404, detail="Job not found")
+    if database.check_application_exists(user_id, job_id):
+        raise HTTPException(status_code=409, detail="Already applied to this job")
+    application = database.create_application(user_id, job_id)
     return application
+
+
+def get_user_profile(user_id: str) -> Dict:
+    user = database.get_user_by_id(user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    # Don't send the actual PDF blob in the profile response, just indicate if it exists
+    has_resume_pdf = user.get("resume_pdf") is not None
+    user_data = dict(user)
+    user_data.pop("resume_pdf", None)  # Remove the blob from response
+    user_data["has_resume_pdf"] = has_resume_pdf
+    return user_data
+
+
+def update_user_profile(user_id: str, profile_data: Dict) -> Dict:
+    resume_pdf_base64 = profile_data.get("resume_pdf_base64")
+    interests = profile_data.get("interests")
+    resume_pdf = None
+    resume_text = None
+    if resume_pdf_base64:
+        try:
+            pdf_bytes = base64.b64decode(resume_pdf_base64)
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid resume PDF")
+        if pdf_bytes:
+            resume_pdf = pdf_bytes
+            resume_text = pdf_utils.extract_pdf_text(pdf_bytes)
+    interests_str = json.dumps(interests) if interests is not None else None
+    ok = database.update_user(
+        user_id=user_id,
+        name=profile_data.get("name"),
+        email=profile_data.get("email"),
+        resume_pdf=resume_pdf,
+        resume_text=resume_text,
+        interests=interests_str,
+        career_objective=profile_data.get("career_objective"),
+    )
+    if not ok:
+        raise HTTPException(status_code=404, detail="User not found")
+    return get_user_profile(user_id)
