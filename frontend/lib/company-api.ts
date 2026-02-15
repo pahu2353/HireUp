@@ -11,6 +11,7 @@ export interface CompanyJobPostingPayload {
 
 export interface TopCandidate {
   user_id: string
+  name?: string
   skills: string[]
   score: number
   reasoning: string
@@ -101,10 +102,20 @@ export async function createCompanyJobPosting(payload: CompanyJobPostingPayload)
   return postJson<{ status: string; job_id: string }>("/create-job-posting", payload)
 }
 
-export async function getTopCandidates(jobId: string, prompt: string) {
-  return postJson<{ job_id: string; top_candidates: TopCandidate[] }>("/get-top-candidates", {
+export async function getTopCandidates(
+  jobId: string,
+  prompt: string,
+  limit?: number,
+) {
+  return postJson<{
+    job_id: string
+    top_candidates: TopCandidate[]
+    ranking_source?: "openai" | "fallback" | "none" | "unknown"
+    ranking_error?: string
+  }>("/get-top-candidates", {
     job_id: jobId,
     prompt,
+    limit: limit ?? undefined,
   })
 }
 

@@ -31,6 +31,10 @@ two-tower/resumes/
 *.swo
 *~
 
+# Environment
+.env
+.env.*
+
 # OS
 .DS_Store
 Thumbs.db

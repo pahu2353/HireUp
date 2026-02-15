@@ -15,7 +15,8 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog"
-import { getAuth } from "@/lib/api"
+import { FileText } from "lucide-react"
+import { getAuth, getApiUrl } from "@/lib/api"
 import {
   CompanyJob,
   CompanyApplicant,
@@ -41,6 +42,8 @@ export default function CandidatesPage() {
   const [info, setInfo] = useState("")
   const [isLoading, setIsLoading] = useState(false)
   const [isUpdating, setIsUpdating] = useState<string | null>(null)
+
+  const [resumeModalUser, setResumeModalUser] = useState<{ userId: string; name: string } | null>(null)
 
   const [scoreModalOpen, setScoreModalOpen] = useState(false)
   const [pendingApplicationId, setPendingApplicationId] = useState("")
@@ -70,7 +73,12 @@ export default function CandidatesPage() {
     try {
       const res = await getCompanyApplicants(companyId, jobId.trim() || undefined)
       setApplicants(res.applicants)
-      setInfo(`Loaded ${res.applicants.length} applicants${jobId ? ` for job ${jobId}` : ""}.`)
+      const jobTitle = jobId ? jobs.find((j) => j.id === jobId)?.title ?? "selected job" : null
+      setInfo(
+        jobTitle === null
+          ? `Loaded ${res.applicants.length} applicants across all postings.`
+          : `Loaded ${res.applicants.length} applicants for ${jobTitle}.`
+      )
     } catch (e) {
       setApplicants([])
       setError(e instanceof Error ? e.message : "Failed to load applicants")
@@ -185,7 +193,7 @@ export default function CandidatesPage() {
               <CardHeader className="pb-2">
                 <div className="flex items-center justify-between gap-3">
                   <div>
-                    <CardTitle className="text-base">{candidate.user_name || candidate.user_id}</CardTitle>
+                    <CardTitle className="text-base">{candidate.user_name || "Unknown"}</CardTitle>
                     <CardDescription>
                       {candidate.user_email} • {candidate.job_title}
                     </CardDescription>
@@ -194,12 +202,25 @@ export default function CandidatesPage() {
                 </div>
               </CardHeader>
               <CardContent>
-                <p className="mb-3 text-sm text-muted-foreground line-clamp-3">
-                  {candidate.resume_text || "No resume summary available."}
-                </p>
+                <div className="mb-3 flex items-center gap-3">
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="gap-1.5 text-xs"
+                    onClick={() =>
+                      setResumeModalUser({
+                        userId: candidate.user_id,
+                        name: candidate.user_name || "Unknown",
+                      })
+                    }
+                  >
+                    <FileText className="h-3.5 w-3.5" />
+                    View Resume
+                  </Button>
+                </div>
                 <div className="mb-3 flex flex-wrap gap-2">
-                  {candidate.skills.map((skill) => (
-                    <Badge key={skill} variant="secondary" className="text-xs">
+                  {candidate.skills.map((skill, idx) => (
+                    <Badge key={`${skill}-${idx}`} variant="secondary" className="text-xs">
                       {skill}
                     </Badge>
                   ))}
@@ -252,6 +273,24 @@ export default function CandidatesPage() {
           )
         })}
       </div>
+
+      {/* Resume PDF Modal */}
+      <Dialog open={!!resumeModalUser} onOpenChange={(open) => !open && setResumeModalUser(null)}>
+        <DialogContent className="max-w-3xl h-[80vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle>{resumeModalUser?.name}&apos;s Resume</DialogTitle>
+          </DialogHeader>
+          <div className="flex-1 min-h-0">
+            {resumeModalUser && (
+              <iframe
+                src={getApiUrl(`/resume/${resumeModalUser.userId}`)}
+                className="h-full w-full rounded-lg border"
+                title="Resume PDF"
+              />
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <Dialog
         open={scoreModalOpen}

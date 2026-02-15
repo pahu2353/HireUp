@@ -36,11 +36,17 @@ def get_company_jobs(company_id: str):
 
 @router.post("/get-top-candidates")
 def get_top_candidates(payload: TopCandidatesRequest):
-    top_candidates = company_service.get_top_candidates(
+    result = company_service.get_top_candidates(
         job_id=payload.job_id,
         prompt=payload.prompt,
+        limit=payload.limit,
     )
-    return {"job_id": payload.job_id, "top_candidates": top_candidates}
+    return {
+        "job_id": payload.job_id,
+        "top_candidates": result.get("top_candidates", []),
+        "ranking_source": result.get("ranking_source", "unknown"),
+        "ranking_error": result.get("ranking_error", ""),
+    }
 
 
 @router.post("/submit-interviewee-list")

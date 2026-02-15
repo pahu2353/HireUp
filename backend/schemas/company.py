@@ -16,6 +16,7 @@ class CreateJobPostingRequest(BaseModel):
 class TopCandidatesRequest(BaseModel):
     job_id: str
     prompt: str
+    limit: int | None = None  # if not set, parsed from prompt (e.g. "top 3") or defaults to 12
 
 
 class SubmitIntervieweeListRequest(BaseModel):

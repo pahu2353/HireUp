@@ -2,7 +2,12 @@
 from __future__ import annotations
 
 import json
+import os
+import re
+import urllib.error
+import urllib.request
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Dict, List
 
 from fastapi import HTTPException
@@ -110,16 +115,208 @@ def create_job_posting(job_data: Dict) -> str:
 
 
 def _rank_candidates(prompt: str, candidates: List[Dict]) -> List[Dict]:
-    prompt_terms = {term.lower() for term in prompt.split() if len(term) > 2}
+    """Local fallback ranker using both skills and resume text."""
+    stop_words = {
+        "the", "and", "for", "with", "that", "this", "from", "have", "has", "are", "you",
+        "your", "top", "best", "give", "show", "find", "applicant", "applicants", "candidate",
+        "candidates",
+    }
+    prompt_terms = {
+        term.lower()
+        for term in re.findall(r"[a-zA-Z0-9\+#\.]+", prompt)
+        if len(term) > 2 and term.lower() not in stop_words
+    }
     ranked = []
     for candidate in candidates:
-        skills = {s.lower() for s in candidate.get("skills", [])}
-        score = len(prompt_terms & skills)
-        ranked.append({**candidate, "score": score, "reasoning": f"Matched {score} prompt skill terms."})
+        skills = {str(s).lower() for s in candidate.get("skills", [])}
+        resume_text = (candidate.get("resume_text") or "").lower()
+        skill_hits = len(prompt_terms & skills)
+        resume_hits = sum(1 for term in prompt_terms if term in resume_text)
+        score = skill_hits * 5 + resume_hits
+        ranked.append(
+            {
+                **candidate,
+                "score": score,
+                "reasoning": f"Local ranking: {skill_hits} skill matches and {resume_hits} resume-text matches.",
+            }
+        )
     return sorted(ranked, key=lambda x: x["score"], reverse=True)
 
 
-def get_top_candidates(job_id: str, prompt: str) -> List[Dict]:
+def _read_env_value(key: str) -> str:
+    """Read env var from process first, then fallback to .env files."""
+    from_process = os.getenv(key)
+    if from_process:
+        return from_process
+
+    # Support both backend/.env and repo-root/.env
+    env_paths = [
+        Path(__file__).resolve().parents[1] / ".env",  # backend/.env
+        Path(__file__).resolve().parents[2] / ".env",  # repo-root/.env
+    ]
+    for env_path in env_paths:
+        if not env_path.exists():
+            continue
+        try:
+            for line in env_path.read_text(encoding="utf-8").splitlines():
+                stripped = line.strip()
+                if not stripped or stripped.startswith("#") or "=" not in stripped:
+                    continue
+                k, v = stripped.split("=", 1)
+                if k.strip() == key:
+                    return v.strip().strip('"').strip("'")
+        except Exception:
+            continue
+    return ""
+
+
+def _extract_json_blob(text: str) -> Dict:
+    """Extract and parse first JSON object from model output."""
+    text = text.strip()
+    if not text:
+        return {}
+    try:
+        return json.loads(text)
+    except Exception:
+        pass
+
+    match = re.search(r"\{.*\}", text, flags=re.DOTALL)
+    if not match:
+        return {}
+    try:
+        return json.loads(match.group(0))
+    except Exception:
+        return {}
+
+
+def _openai_rank_candidates(job: Dict, prompt: str, candidates: List[Dict]) -> List[Dict]:
+    """Use OpenAI chat completions to score candidates for a job."""
+    api_key = _read_env_value("OPENAI_API_KEY")
+    if not api_key:
+        raise RuntimeError("OPENAI_API_KEY not set")
+
+    # Keep payload bounded for latency and token usage.
+    limited = candidates[:100]
+    candidate_payload = []
+    for c in limited:
+        candidate_payload.append(
+            {
+                "user_id": c.get("user_id", ""),
+                "resume_text": (c.get("resume_text") or "")[:10000],
+            }
+        )
+
+    system_msg = (
+        "You are a recruiting ranking assistant. "
+        "Given a job and recruiter prompt, score each candidate 0-100. "
+        "Return strict JSON only with shape: "
+        '{"ranked":[{"user_id":"...","score":0,"reasoning":"..."}]}. '
+        "Score should reflect skill match, experience relevance, how cracked they are, and prompt fit."
+    )
+    user_msg = {
+        "job": {
+            "id": job.get("id"),
+            "title": job.get("title"),
+            "description": job.get("description"),
+            "skills": job.get("skills"),
+            "location": job.get("location"),
+        },
+        "prompt": prompt,
+        "candidates": candidate_payload,
+    }
+
+    body = json.dumps(
+        {
+            "model": "gpt-5.2",
+            "temperature": 0.2,
+            "response_format": {"type": "json_object"},
+            "messages": [
+                {"role": "system", "content": system_msg},
+                {"role": "user", "content": json.dumps(user_msg)},
+            ],
+        }
+    ).encode("utf-8")
+
+    req = urllib.request.Request(
+        "https://api.openai.com/v1/chat/completions",
+        data=body,
+        headers={
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {api_key}",
+        },
+        method="POST",
+    )
+
+    try:
+        with urllib.request.urlopen(req, timeout=45) as resp:
+            payload = json.loads(resp.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        details = e.read().decode("utf-8", errors="ignore")
+        raise RuntimeError(f"OpenAI HTTP {e.code}: {details[:300]}")
+    except Exception as e:
+        raise RuntimeError(f"OpenAI request failed: {e}")
+
+    content = (
+        payload.get("choices", [{}])[0]
+        .get("message", {})
+        .get("content", "")
+    )
+    parsed = _extract_json_blob(content)
+    ranked = parsed.get("ranked", [])
+    if not isinstance(ranked, list):
+        raise RuntimeError("OpenAI response missing ranked list")
+
+    by_user = {c.get("user_id"): c for c in limited}
+    merged = []
+    for item in ranked:
+        if not isinstance(item, dict):
+            continue
+        user_id = str(item.get("user_id", "")).strip()
+        if not user_id or user_id not in by_user:
+            continue
+        base = by_user[user_id]
+        score = item.get("score", 0)
+        try:
+            score = int(score)
+        except Exception:
+            score = 0
+        merged.append(
+            {
+                "user_id": user_id,
+                "name": base.get("name") or "",
+                "skills": base.get("skills", []),
+                "score": max(0, min(100, score)),
+                "reasoning": str(item.get("reasoning", "Model-ranked candidate.")),
+            }
+        )
+
+    if not merged:
+        raise RuntimeError("OpenAI returned no usable candidate rankings")
+
+    merged.sort(key=lambda x: x["score"], reverse=True)
+    return merged
+
+
+def _parse_limit_from_prompt(prompt: str) -> int | None:
+    """Extract requested count from prompt, e.g. 'top 3', '5 applicants', 'best 10'."""
+    import re
+    prompt_lower = (prompt or "").lower()
+    # "top 3", "top 5 applicants", "give me top 10"
+    m = re.search(r"top\s+(\d+)", prompt_lower)
+    if m:
+        return min(100, max(1, int(m.group(1))))
+    # "3 applicants", "5 candidates"
+    m = re.search(r"(\d+)\s+(?:applicants|candidates)", prompt_lower)
+    if m:
+        return min(100, max(1, int(m.group(1))))
+    # "best 7"
+    m = re.search(r"best\s+(\d+)", prompt_lower)
+    if m:
+        return min(100, max(1, int(m.group(1))))
+    return None
+
+
+def get_top_candidates(job_id: str, prompt: str, limit: int | None = None) -> Dict:
     job = database.get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
@@ -128,20 +325,45 @@ def get_top_candidates(job_id: str, prompt: str) -> List[Dict]:
     if company_id:
         _agent_queries_by_company[company_id] = _agent_queries_by_company.get(company_id, 0) + 1
 
-    mock_candidates = [
-        {"user_id": "user-1", "skills": ["python", "fastapi", "sql"]},
-        {"user_id": "user-2", "skills": ["react", "typescript", "node"]},
-        {"user_id": "user-3", "skills": ["pytorch", "ranking", "python"]},
+    applicants = list_company_applicants(company_id, job_id=job_id)
+    candidate_pool = [
+        {
+            "user_id": a.get("user_id", ""),
+            "name": a.get("user_name", ""),
+            "skills": a.get("skills", []),
+            "resume_text": a.get("resume_text", ""),
+        }
+        for a in applicants
+        if a.get("user_id")
     ]
-    ranked = _rank_candidates(prompt, mock_candidates)
+    if not candidate_pool:
+        return {"top_candidates": [], "ranking_source": "none", "ranking_error": ""}
 
+    # Try OpenAI first; fall back to local overlap ranking for resilience.
+    ranking_source = "openai"
+    ranking_error = ""
+    try:
+        ranked = _openai_rank_candidates(job, prompt, candidate_pool)
+    except Exception as exc:
+        ranking_source = "fallback"
+        ranking_error = str(exc)[:300]
+        ranked = _rank_candidates(prompt, candidate_pool)
+
+    n = limit if limit is not None else _parse_limit_from_prompt(prompt)
+    n = min(len(ranked), n) if n else min(len(ranked), 12)
+
+    top_candidates = ranked[:n]
     if company_id:
         _add_activity(
             company_id,
             "AI Agent completed search",
-            f'Found {len(ranked[:12])} candidates for prompt "{prompt}".',
+            f'Found {len(top_candidates)} candidates for prompt "{prompt}" (source: {ranking_source}).',
         )
-    return ranked[:12]
+    return {
+        "top_candidates": top_candidates,
+        "ranking_source": ranking_source,
+        "ranking_error": ranking_error,
+    }
 
 
 def submit_interviewee_list(job_id: str, user_ids: List[str]) -> None:
